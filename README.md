@@ -14,7 +14,8 @@ Requires Java 17+. No other install: the Gradle wrapper fetches everything else.
 
 ```
 ./gradlew :server:run        # then open http://localhost:7070
-./gradlew test
+./gradlew test               # the JVM tests
+node --test server/src/test/js/*.test.mjs   # the browser drum kit (needs Node 20+)
 ```
 
 `PORT` (default 7070) sets the web port and `JADE_PORT` (default 1099) the internal JADE platform port.
@@ -50,8 +51,8 @@ Requires Java 17+. No other install: the Gradle wrapper fetches everything else.
    synchronizer when that part happens. At the end of a solo the leader sends a `take-lead` request to the next
    soloist and becomes a supporter. After the last solo, the leader asks everyone for the ending.
 
-5. **Etiquette** (`SupportPolicy`): the sax lays out while anyone else solos, and everybody lays out under a
-   drum solo. Everyone plays the ending.
+5. **Nobody drops out** (`SupportPolicy`): after its own solo a musician goes back to accompanying. Behind a
+   drum solo everyone plays a lighter part so the fills can be heard, and everyone plays the ending.
 
 6. Agents publish `NoteEvent`s with absolute timestamps ahead of time. The browser converts them to audio-clock
    time, so network jitter does not affect rhythm. `SECTION` status events tell the UI what is playing and when.
@@ -61,14 +62,14 @@ original piano-and-bass duo.
 
 ### The instruments
 
-Every composer writes five kinds of phrase (`PhraseKind`): intro, head, support (accompaniment), solo and ending.
+Every composer writes six kinds of phrase (`PhraseKind`): intro, head, support (accompaniment), light support (behind a drum solo), solo and ending.
 
-| Instrument | Head | Support | Solo | Ending |
-|---|---|---|---|---|
-| Sax | swung melody over the changes | lays out | busy swung line using the chord scale | held root |
-| Piano | comping | comping: rootless 3rd-7th-9th voicings | right-hand line plus sparse left-hand chords | held chord |
-| Bass | walking | walking: root, chord tone, fifth, chromatic approach | line in the bass register | held root |
-| Drums | ride, hi-hat on 2 and 4, feathered kick, ghost snare | same | ride with tom runs, snare rolls and crashes | crash and kick |
+| Instrument | Head | Support | Light support | Solo | Ending |
+|---|---|---|---|---|---|
+| Sax | swung melody over the changes | soft sustained guide tone every other bar | the same, softer | busy swung line using the chord scale | held root |
+| Piano | comping | rootless 3rd-7th-9th voicings | one soft chord per bar | right-hand line plus sparse left-hand chords | held chord |
+| Bass | walking | walking: root, chord tone, fifth, chromatic approach | two-feel: root and fifth, softly | line in the bass register | held root |
+| Drums | ride, hi-hat on 2 and 4, feathered kick, ghost snare | same | same | ride with tom runs, snare rolls and crashes | crash and kick |
 
 Notes are plain `NoteEvent`s: a MIDI pitch (General MIDI percussion numbers for drums), an absolute start time
 in milliseconds, a duration and a velocity. Swing is just timing: `Swing.OFFBEAT` places the second eighth of a
@@ -125,6 +126,6 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 
 - An Ensemble Assistant agent per Musebot (today the server plays the Conductor's part: tempo and start/stop)
 - Changing the tempo or the ensemble while playing (parts are arranged about two bars ahead, so this is now possible)
-- Choosing who solos, or how many choruses each, from the UI; trading fours; a final head
+- Choosing who solos, or how many choruses each, from the UI; trading fours; a final head; dynamics that follow the soloist
 - Better instrument sounds (the sax, piano and drums are Tone.js synthesis for now; SoundFonts or samples would sound more real)
 - Letting third-party Musebots join over the network

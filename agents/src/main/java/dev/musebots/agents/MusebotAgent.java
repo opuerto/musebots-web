@@ -22,6 +22,7 @@ abstract class MusebotAgent extends Agent {
     private final String sessionId;
     private final EventSink sink;
     private final Clock clock;
+    private volatile boolean registered;
 
     MusebotAgent(String sessionId, EventSink sink, Clock clock) {
         this.sessionId = sessionId;
@@ -80,6 +81,7 @@ abstract class MusebotAgent extends Agent {
         description.addServices(service);
         try {
             DFService.register(this, description);
+            registered = true;
         } catch (FIPAException e) {
             throw new IllegalStateException("Could not register " + getLocalName() + " with the directory", e);
         }
@@ -107,10 +109,13 @@ abstract class MusebotAgent extends Agent {
 
     @Override
     protected void takeDown() {
+        if (!registered) {
+            return; // e.g. composers never register, and deregistering would only make the directory complain
+        }
         try {
             DFService.deregister(this);
         } catch (FIPAException e) {
-            // Not registered (the composer is not), or the platform is shutting down.
+            // The platform is shutting down.
         }
     }
 }

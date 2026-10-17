@@ -112,7 +112,8 @@ final class Supporting {
 
     /**
      * Backs the leader up. The request names a segment, not a time: the musician asks its synchronizer when
-     * that segment happens, then has its composer write the part (or lays out, if etiquette says so).
+     * that segment happens, then has its composer write the part. Nobody sits out: behind a drum solo the
+     * part is just a lighter one.
      */
     private static final class AccompanyReceiver extends CyclicBehaviour {
 
@@ -138,13 +139,11 @@ final class Supporting {
             reply.setPerformative(ACLMessage.INFORM);
 
             agent.whenIs(job.segmentId(), segment -> {
-                PhraseKind support = segment.kind().supporting();
-                boolean layOut = SupportPolicy.laysOut(agent.config().instrument(), job.leader(), support);
-                if (!layOut) {
-                    agent.compose(support, segment);
-                }
-                reply.setContent(Json.write(new Protocol.Accompanying(segment.id(), !layOut)));
-                agent.observe(reply, layOut ? "laying out during " + segment.id() : "playing along in " + segment.id());
+                PhraseKind support = SupportPolicy.supportFor(job.leader(), segment.kind());
+                agent.compose(support, segment);
+                reply.setContent(Json.write(new Protocol.Accompanying(segment.id(), support)));
+                agent.observe(reply, (support == PhraseKind.SUPPORT_LIGHT ? "playing softly behind " : "playing along in ")
+                        + segment.id());
                 agent.send(reply);
             });
         }

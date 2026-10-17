@@ -105,6 +105,18 @@ class EnsembleRuntimeTest {
         }
     }
 
+    /** Fails if there is any stretch of two bars in [from, to) in which the instrument starts no note. */
+    private static void assertPlaysThroughout(Recorder recorder, Instrument instrument, long from, long to, String what) {
+        for (long window = from; window < to; window += 2 * BAR_MS) {
+            assertFalse(recorder.notes(instrument, window, Math.min(window + 2 * BAR_MS, to)).isEmpty(),
+                    what + " goes silent from " + (window - from) / BAR_MS + " bars in");
+        }
+    }
+
+    private static int maxVelocity(Recorder recorder, Instrument instrument, long from, long to) {
+        return recorder.notes(instrument, from, to).stream().mapToInt(NoteEvent::velocity).max().orElse(0);
+    }
+
     private Recorder perform(SessionConfig session) throws InterruptedException {
         Recorder recorder = new Recorder();
         Performance performance = runtime.perform(session, recorder);
@@ -192,23 +204,26 @@ class EnsembleRuntimeTest {
         assertTrue(handovers.get(1).from().endsWith("-piano-musician") && handovers.get(1).to().get(0).endsWith("-bass-musician"));
         assertTrue(handovers.get(2).from().endsWith("-bass-musician") && handovers.get(2).to().get(0).endsWith("-drums-musician"));
 
-        // The sax plays the head, its own solo and the ending, and otherwise lays out.
-        assertFalse(recorder.notes(Instrument.SAX, head, saxSolo).isEmpty());
-        assertFalse(recorder.notes(Instrument.SAX, saxSolo, pianoSolo).isEmpty());
-        assertTrue(recorder.notes(Instrument.SAX, pianoSolo, ending).isEmpty(), "the sax played behind someone else's solo");
-        assertFalse(recorder.notes(Instrument.SAX, ending, ending + BAR_MS).isEmpty());
-
-        // Behind the piano and bass solos the rest of the rhythm section keeps playing.
-        assertFalse(recorder.notes(Instrument.BASS, pianoSolo, bassSolo).isEmpty());
-        assertFalse(recorder.notes(Instrument.DRUMS, pianoSolo, bassSolo).isEmpty());
-        assertFalse(recorder.notes(Instrument.PIANO, bassSolo, drumsSolo).isEmpty());
-        assertFalse(recorder.notes(Instrument.DRUMS, bassSolo, drumsSolo).isEmpty());
-
-        // During the drum solo everyone else lays out.
-        assertFalse(recorder.notes(Instrument.DRUMS, drumsSolo, ending).isEmpty());
-        for (Instrument silent : List.of(Instrument.SAX, Instrument.PIANO, Instrument.BASS)) {
-            assertTrue(recorder.notes(silent, drumsSolo, ending).isEmpty(), silent + " played under the drum solo");
+        // Nobody drops out after their own solo: every instrument keeps playing, with no gap of more than two
+        // bars, through every part of the tune. (This is the regression test for "they stop after soloing".)
+        long[] starts = {head, saxSolo, pianoSolo, bassSolo, drumsSolo, ending};
+        String[] names = {"head", "sax solo", "piano solo", "bass solo", "drums solo", "ending"};
+        for (Instrument instrument : Instrument.values()) {
+            for (int part = 0; part < starts.length - 1; part++) {
+                assertPlaysThroughout(recorder, instrument, starts[part], starts[part + 1], instrument + " in the " + names[part]);
+            }
+            assertFalse(recorder.notes(instrument, ending, ending + BAR_MS).isEmpty(), instrument + " missed the ending");
         }
+
+        // Behind someone else's solo the sax plays soft pads, not its melody.
+        assertTrue(maxVelocity(recorder, Instrument.SAX, pianoSolo, ending) < 70, "the sax should sit behind the solos");
+        assertTrue(maxVelocity(recorder, Instrument.SAX, head, saxSolo) >= 84, "the sax leads the head");
+
+        // Behind the drum solo the rest of the band plays, but lightly.
+        assertTrue(maxVelocity(recorder, Instrument.PIANO, drumsSolo, ending) < 60, "piano too loud under the drums");
+        assertTrue(maxVelocity(recorder, Instrument.BASS, drumsSolo, ending) < 80, "bass too loud under the drums");
+        assertTrue(maxVelocity(recorder, Instrument.SAX, drumsSolo, ending) < 60, "sax too loud under the drums");
+        assertTrue(maxVelocity(recorder, Instrument.PIANO, bassSolo, drumsSolo) >= 62, "the piano should comp fully behind the bass");
 
         // Everybody closes the tune together.
         for (Instrument instrument : Instrument.values()) {

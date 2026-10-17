@@ -38,13 +38,59 @@ class PhrasesByKindTest {
     }
 
     @Test
-    void theSaxLaysOutExceptForTheHeadItsSoloAndTheEnding() {
+    void theSaxBacksOthersUpWithSoftPadsInsteadOfDroppingOut() {
         PhraseComposer sax = composer(Instrument.SAX, 1);
-        assertTrue(sax.compose(request(PhraseKind.SUPPORT, 12)).isEmpty());
-        assertTrue(sax.compose(request(PhraseKind.INTRO, 4)).isEmpty());
-        assertFalse(sax.compose(request(PhraseKind.HEAD, 12)).isEmpty());
+        List<NoteEvent> pads = sax.compose(request(PhraseKind.SUPPORT, 12));
+        List<NoteEvent> melody = sax.compose(request(PhraseKind.HEAD, 12));
+
+        assertEquals(6, pads.size(), "one pad every other bar");
+        assertTrue(pads.stream().mapToInt(NoteEvent::velocity).max().orElseThrow()
+                < melody.stream().mapToInt(NoteEvent::velocity).min().orElseThrow(), "pads should sit behind the melody");
+        assertTrue(sax.compose(request(PhraseKind.INTRO, 4)).isEmpty(), "only the winner plays the intro");
         assertFalse(sax.compose(request(PhraseKind.SOLO, 12)).isEmpty());
         assertEquals(1, sax.compose(request(PhraseKind.ENDING, 1)).size());
+    }
+
+    @Test
+    void padsAreGuideTonesAndTheLastOneEndsWithThePhrase() {
+        for (long seed = 0; seed < 20; seed++) {
+            PhraseRequest request = request(PhraseKind.SUPPORT, 11); // an odd number of bars
+            List<NoteEvent> pads = composer(Instrument.SAX, seed).compose(request);
+            for (int i = 0; i < pads.size(); i++) {
+                Chord chord = request.bars().get(i * 2).chord();
+                int pc = pads.get(i).midi() % 12;
+                assertTrue(pc == chord.thirdPc() || pc == chord.seventhPc());
+                assertTrue(pads.get(i).endMs() <= request.endMs());
+            }
+        }
+    }
+
+    @Test
+    void behindADrumSoloTheRhythmSectionPlaysLighter() {
+        for (Instrument instrument : new Instrument[] {Instrument.SAX, Instrument.PIANO, Instrument.BASS}) {
+            List<NoteEvent> full = composer(instrument, 4).compose(request(PhraseKind.SUPPORT, 12));
+            List<NoteEvent> light = composer(instrument, 4).compose(request(PhraseKind.SUPPORT_LIGHT, 12));
+            assertFalse(light.isEmpty(), instrument + " dropped out behind the drum solo");
+            assertTrue(light.stream().mapToInt(NoteEvent::velocity).max().orElseThrow()
+                    < full.stream().mapToInt(NoteEvent::velocity).max().orElseThrow(), instrument + " was not softer");
+            assertTrue(light.size() <= full.size(), instrument + " was not sparser");
+        }
+    }
+
+    @Test
+    void everyInstrumentPlaysSomethingInEveryTwoBarsOfEveryPartItBacksUp() {
+        for (Instrument instrument : Instrument.values()) {
+            for (PhraseKind kind : new PhraseKind[] {PhraseKind.SUPPORT, PhraseKind.SUPPORT_LIGHT, PhraseKind.HEAD, PhraseKind.SOLO}) {
+                PhraseRequest request = request(kind, 12);
+                List<NoteEvent> notes = composer(instrument, 9).compose(request);
+                for (int bar = 0; bar < 12; bar += 2) {
+                    long from = request.startMs() + clock.barsToMillis(bar);
+                    long to = from + clock.barsToMillis(2);
+                    assertTrue(notes.stream().anyMatch(n -> n.startMs() >= from && n.startMs() < to),
+                            instrument + " " + kind + " is silent from bar " + bar);
+                }
+            }
+        }
     }
 
     @Test

@@ -8,6 +8,8 @@ public enum PhraseKind {
     HEAD,
     /** Accompaniment behind whoever is leading or soloing. */
     SUPPORT,
+    /** Accompaniment that stays out of the way, e.g. under a drum solo. */
+    SUPPORT_LIGHT,
     /** An improvised chorus. */
     SOLO,
     /** The final chord that closes the tune. */

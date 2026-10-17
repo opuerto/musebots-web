@@ -1,5 +1,7 @@
 // Browser client: keeps a clock offset to the server, then schedules each note on the Web Audio clock.
 
+import { buildDrumKit } from './drums.js';
+
 const SYNC_ROUNDS = 8;
 
 const els = {
@@ -87,40 +89,11 @@ function buildInstruments() {
     volume: -10,
   }).connect(vibrato);
 
-  const kick = new Tone.MembraneSynth({ pitchDecay: 0.04, octaves: 5, envelope: { attack: 0.001, decay: 0.3, sustain: 0 }, volume: -8 }).toDestination();
-  const snare = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.12, sustain: 0 }, volume: -18 })
-    .connect(new Tone.Filter(1800, 'highpass').toDestination());
-  const ride = new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.35, release: 0.1 }, harmonicity: 5.1, modulationIndex: 24, resonance: 5200, octaves: 1.2, volume: -26 }).toDestination();
-  const crash = new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 1.2, release: 0.4 }, harmonicity: 5.1, modulationIndex: 32, resonance: 3800, octaves: 1.5, volume: -22 }).toDestination();
-  const tom = new Tone.MembraneSynth({ pitchDecay: 0.08, octaves: 2, envelope: { attack: 0.001, decay: 0.35, sustain: 0 }, volume: -10 }).toDestination();
-  const hat = new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 0.06, release: 0.02 }, harmonicity: 5.1, modulationIndex: 20, resonance: 7000, octaves: 1, volume: -24 }).toDestination();
-
-  const pitched = (synth) => ({
-    play: (note, when) => synth.triggerAttackRelease(Tone.Frequency(note.midi, 'midi'), note.durationMs / 1000, when, note.velocity / 127),
-    dispose: () => synth.dispose(),
-  });
-
-  // General MIDI percussion numbers, as written by the server's drum composer.
-  const kit = {
-    36: (note, when) => kick.triggerAttackRelease('C1', 0.2, when, note.velocity / 127),
-    38: (note, when) => snare.triggerAttackRelease(0.12, when, note.velocity / 127),
-    44: (note, when) => hat.triggerAttackRelease(0.05, when, note.velocity / 127),
-    51: (note, when) => ride.triggerAttackRelease(0.3, when, note.velocity / 127),
-    49: (note, when) => crash.triggerAttackRelease(1.0, when, note.velocity / 127),
-    50: (note, when) => tom.triggerAttackRelease('D3', 0.3, when, note.velocity / 127),
-    47: (note, when) => tom.triggerAttackRelease('A2', 0.3, when, note.velocity / 127),
-    45: (note, when) => tom.triggerAttackRelease('F2', 0.3, when, note.velocity / 127),
-    41: (note, when) => tom.triggerAttackRelease('C2', 0.3, when, note.velocity / 127),
-  };
-
   return {
     BASS: pitched(bass),
     PIANO: pitched(piano),
     SAX: pitched(sax),
-    DRUMS: {
-      play: (note, when) => kit[note.midi]?.(note, when),
-      dispose: () => [kick, snare, ride, hat, crash, tom].forEach((d) => d.dispose()),
-    },
+    DRUMS: buildDrumKit(Tone),
   };
 }
 

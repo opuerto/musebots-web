@@ -63,8 +63,8 @@ public final class Protocol {
     public record Accompany(String segmentId, Instrument leader) {
     }
 
-    /** A supporter's answer: whether it will play or lay out. */
-    public record Accompanying(String segmentId, boolean playing) {
+    /** A supporter's answer: what it is going to play behind the leader. */
+    public record Accompanying(String segmentId, PhraseKind playing) {
     }
 
     /** Hands the lead to the next soloist; {@code remaining} are the soloists who follow. */

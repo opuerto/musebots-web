@@ -1,23 +1,20 @@
 package dev.musebots.core;
 
-/** The etiquette of backing someone up: who plays and who lays out while another musician has the floor. */
+/** The etiquette of backing someone up: everybody keeps playing, but how much depends on who has the floor. */
 public final class SupportPolicy {
 
     private SupportPolicy() {
     }
 
     /**
-     * @param self    the musician deciding
-     * @param leader  whoever is leading or soloing
-     * @param support what the others are playing ({@link PhraseKind#SUPPORT} or {@link PhraseKind#ENDING})
+     * What the others play while {@code leader} plays a phrase of kind {@code leaderPart}. Nobody drops out;
+     * behind a drum solo they play lightly, so the fills can be heard.
      */
-    public static boolean laysOut(Instrument self, Instrument leader, PhraseKind support) {
-        if (support == PhraseKind.ENDING) {
-            return false; // everybody plays the last chord
+    public static PhraseKind supportFor(Instrument leader, PhraseKind leaderPart) {
+        PhraseKind support = leaderPart.supporting();
+        if (support == PhraseKind.SUPPORT && leader == Instrument.DRUMS) {
+            return PhraseKind.SUPPORT_LIGHT;
         }
-        if (self == Instrument.SAX) {
-            return true; // the horn leaves space for the others
-        }
-        return leader == Instrument.DRUMS; // nobody comps under a drum solo
+        return support;
     }
 }

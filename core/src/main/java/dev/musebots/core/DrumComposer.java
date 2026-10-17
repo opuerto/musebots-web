@@ -38,7 +38,7 @@ public final class DrumComposer implements PhraseComposer {
         return switch (request.kind()) {
             case SOLO -> solo(request);
             case ENDING -> ending(request);
-            case INTRO, HEAD, SUPPORT -> swing(request);
+            case INTRO, HEAD, SUPPORT, SUPPORT_LIGHT -> swing(request);
         };
     }
 

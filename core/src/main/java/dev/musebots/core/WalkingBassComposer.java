@@ -29,8 +29,27 @@ public final class WalkingBassComposer implements PhraseComposer {
         return switch (request.kind()) {
             case SOLO -> solo.line(request);
             case ENDING -> List.of(heldRoot(request));
+            case SUPPORT_LIGHT -> twoFeel(request);
             case INTRO, HEAD, SUPPORT -> walk(request);
         };
+    }
+
+    /** Half-time feel: the root on beat 1 and the fifth on beat 3, softly, leaving room for the drums. */
+    private List<NoteEvent> twoFeel(PhraseRequest request) {
+        List<NoteEvent> notes = new ArrayList<>();
+        int beatsPerBar = request.clock().beatsPerBar();
+        for (int bar = 0; bar < request.bars().size(); bar++) {
+            Chord chord = request.bars().get(bar).chord();
+            double barStart = (double) bar * beatsPerBar;
+            notes.add(twoFeelNote(request, place(chord.root()), barStart, 62 + random.nextInt(8)));
+            notes.add(twoFeelNote(request, place(chord.fifthPc()), barStart + beatsPerBar / 2.0, 54 + random.nextInt(8)));
+        }
+        return notes;
+    }
+
+    private static NoteEvent twoFeelNote(PhraseRequest request, int midi, double startBeat, int velocity) {
+        return new NoteEvent(Instrument.BASS, midi, request.startMs() + request.clock().beatsToMillis(startBeat),
+                Math.round(request.clock().beatsToMillis(request.clock().beatsPerBar() / 2.0) * 0.9), velocity);
     }
 
     private static NoteEvent heldRoot(PhraseRequest request) {

@@ -1,29 +1,28 @@
 package dev.musebots.core;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;
 
 class SupportPolicyTest {
 
     @Test
-    void theSaxLaysOutBehindOtherSoloists() {
-        assertTrue(SupportPolicy.laysOut(Instrument.SAX, Instrument.PIANO, PhraseKind.SUPPORT));
+    void everyoneBacksUpAHeadOrASoloInTheNormalWay() {
+        for (Instrument leader : new Instrument[] {Instrument.SAX, Instrument.PIANO, Instrument.BASS}) {
+            assertEquals(PhraseKind.SUPPORT, SupportPolicy.supportFor(leader, PhraseKind.SOLO));
+            assertEquals(PhraseKind.SUPPORT, SupportPolicy.supportFor(leader, PhraseKind.HEAD));
+        }
     }
 
     @Test
-    void theRhythmSectionBacksUpHornsAndKeysButNotADrumSolo() {
-        assertFalse(SupportPolicy.laysOut(Instrument.BASS, Instrument.SAX, PhraseKind.SUPPORT));
-        assertFalse(SupportPolicy.laysOut(Instrument.DRUMS, Instrument.PIANO, PhraseKind.SUPPORT));
-        assertTrue(SupportPolicy.laysOut(Instrument.BASS, Instrument.DRUMS, PhraseKind.SUPPORT));
-        assertTrue(SupportPolicy.laysOut(Instrument.PIANO, Instrument.DRUMS, PhraseKind.SUPPORT));
+    void behindADrumSoloEveryoneKeepsPlayingButSoftly() {
+        assertEquals(PhraseKind.SUPPORT_LIGHT, SupportPolicy.supportFor(Instrument.DRUMS, PhraseKind.SOLO));
     }
 
     @Test
     void everyoneJoinsTheEnding() {
-        for (Instrument self : Instrument.values()) {
-            assertFalse(SupportPolicy.laysOut(self, Instrument.DRUMS, PhraseKind.ENDING));
+        for (Instrument leader : Instrument.values()) {
+            assertEquals(PhraseKind.ENDING, SupportPolicy.supportFor(leader, PhraseKind.ENDING));
         }
     }
 }
