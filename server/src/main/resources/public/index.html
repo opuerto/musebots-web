@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Musebots</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Musebots</h1>
+    <p class="lead">A piano and a bass, each an autonomous agent, negotiate who plays the intro and then play a 12-bar blues together.</p>
+
+    <section class="controls">
+      <label>Tempo <input id="tempo" type="range" min="60" max="200" value="120"> <output id="tempoOut">120</output> bpm</label>
+      <label>Choruses <input id="choruses" type="number" min="1" max="4" value="2"></label>
+      <button id="start" disabled>Start</button>
+      <button id="stop" disabled>Stop</button>
+    </section>
+
+    <p id="status" class="status">Connecting…</p>
+
+    <h2>What the musicians say to each other</h2>
+    <ol id="conversation" class="conversation"></ol>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
