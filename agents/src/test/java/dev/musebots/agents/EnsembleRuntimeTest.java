@@ -132,7 +132,7 @@ class EnsembleRuntimeTest {
         List<Instrument> everyone = new ArrayList<>(List.of(leader));
         everyone.addAll(accompanists);
         return new SessionConfig(id, Songs.bluesInF(FAST_TEMPO), 1, leader, accompanists, everyone,
-                300, 500, 42, Clock.systemUTC());
+                300, 500, 400, 42, Clock.systemUTC());
     }
 
     @Test
@@ -250,6 +250,100 @@ class EnsembleRuntimeTest {
         // And each Musebot's composer reports what it wrote to its own musician.
         assertTrue(recorder.conversation().stream().anyMatch(c -> c.from().endsWith("-bass-composer")
                 && c.to().get(0).endsWith("-bass-musician") && c.summary().startsWith("wrote ")));
+    }
+
+    // ---- The Conductor, through the Ensemble Assistants ----
+
+    /** A duo at 480 bpm (a chorus takes 6 s) whose intro starts two seconds in, so commands can beat the first notes. */
+    private static SessionConfig conducted(String id) {
+        return new SessionConfig(id, Songs.bluesInF(480), 1, Instrument.PIANO, List.of(Instrument.BASS),
+                List.of(Instrument.PIANO, Instrument.BASS), 2_000, 500, 400, 42, Clock.systemUTC());
+    }
+
+    private static Protocol.Conduct conduct(Protocol.Command command, Instrument target, double value) {
+        return new Protocol.Conduct(command, target, value);
+    }
+
+    @Test
+    void aTempoChangeAppliesToThePartsArrangedAfterIt() throws InterruptedException {
+        Recorder recorder = new Recorder();
+        Performance performance = runtime.perform(conducted("tempo"), recorder);
+        try {
+            Thread.sleep(1_000);
+            performance.conduct(conduct(Protocol.Command.TEMPO, null, 960));
+            assertTrue(recorder.done.await(60, TimeUnit.SECONDS), "performance did not finish");
+        } finally {
+            performance.stop();
+        }
+        recorder.assertFinished();
+
+        // The head was arranged before the command, at 480 bpm (6 s); the solos and the ending after it, at 960 (3 s).
+        long head = recorder.sectionStart("The head");
+        long pianoSolo = recorder.sectionStart("piano solo");
+        long bassSolo = recorder.sectionStart("bass solo");
+        long ending = recorder.sectionStart("The ending");
+        assertEquals(6_000, pianoSolo - head);
+        assertEquals(3_000, bassSolo - pianoSolo);
+        assertEquals(3_000, ending - bassSolo);
+
+        // The bass backing the piano solo was written at the tempo that solo was arranged at: four beats a bar, 62.5 ms each.
+        List<NoteEvent> backing = recorder.notes(Instrument.BASS, pianoSolo, bassSolo);
+        assertEquals(48, backing.size());
+        assertEquals(63, backing.get(1).startMs() - backing.get(0).startMs(), 1);
+
+        // The Conductor told every assistant, and each told its own musician (not the other's).
+        assertEquals(1, recorder.conversation(Protocol.CONDUCTOR, "INFORM").size());
+        List<ConversationEvent> relayed = recorder.conversation(Protocol.TEMPO, "INFORM");
+        assertEquals(2, relayed.size());
+        assertTrue(relayed.stream().allMatch(c -> c.from().endsWith("-assistant") && c.to().get(0).endsWith("-musician")));
+    }
+
+    @Test
+    void aMusicianCanBeMutedAndBroughtBackIn() throws InterruptedException {
+        Recorder recorder = new Recorder();
+        Performance performance = runtime.perform(conducted("mute"), recorder);
+        long unmutedAt;
+        try {
+            Thread.sleep(300);
+            performance.conduct(conduct(Protocol.Command.MUTE, Instrument.BASS, 0));
+            Thread.sleep(8_500); // through the intro and most of the head
+            unmutedAt = System.currentTimeMillis();
+            performance.conduct(conduct(Protocol.Command.UNMUTE, Instrument.BASS, 0));
+            assertTrue(recorder.done.await(60, TimeUnit.SECONDS), "performance did not finish");
+        } finally {
+            performance.stop();
+        }
+        recorder.assertFinished();
+
+        // Muting only affects the bass: the piano plays all the way through, and the tune is not disturbed.
+        assertEquals(List.of("The head", "piano solo", "bass solo", "The ending"), recorder.sectionLabels());
+        assertFalse(recorder.notes(Instrument.PIANO).isEmpty());
+
+        // While it sat out the bass played nothing, including the intro it had won. Afterwards it is back.
+        List<NoteEvent> bass = recorder.notes(Instrument.BASS);
+        assertFalse(bass.isEmpty(), "the bass never came back");
+        assertTrue(bass.stream().allMatch(n -> n.startMs() >= unmutedAt), "the bass played while muted");
+        assertEquals(2, recorder.conversation(Protocol.MIX, "INFORM").size(), "one message to the bass's composer for each command");
+    }
+
+    @Test
+    void volumeChangesOnlyTheMusicianItIsFor() throws InterruptedException {
+        Recorder recorder = new Recorder();
+        Performance performance = runtime.perform(conducted("volume"), recorder);
+        try {
+            Thread.sleep(300);
+            performance.conduct(conduct(Protocol.Command.VOLUME, Instrument.BASS, 0.5));
+            assertTrue(recorder.done.await(60, TimeUnit.SECONDS), "performance did not finish");
+        } finally {
+            performance.stop();
+        }
+        recorder.assertFinished();
+
+        // The bass's loudest note is about 100 at full volume; at half it cannot pass 55. The piano is untouched.
+        assertTrue(maxVelocity(recorder, Instrument.BASS, 0, Long.MAX_VALUE) <= 55);
+        assertTrue(maxVelocity(recorder, Instrument.BASS, 0, Long.MAX_VALUE) > 0);
+        assertTrue(maxVelocity(recorder, Instrument.PIANO, 0, Long.MAX_VALUE) >= 80);
+        assertEquals(1, recorder.conversation(Protocol.MIX, "INFORM").size());
     }
 
     @Test

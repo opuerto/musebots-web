@@ -183,6 +183,100 @@ class PerformanceServerTest {
         }
     }
 
+    private static void waitFor(java.util.function.BooleanSupplier condition, long timeoutMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+    }
+
+    private static List<String> errors(Client client) {
+        return client.ofType("error").stream().map(m -> m.path("source").asText() + ": " + m.path("message").asText()).toList();
+    }
+
+    @Test
+    void theConductorChangesTheTempoOfAPerformanceInProgress() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText(start(480, "duo"), true).join();
+            waitFor(() -> !client.ofType("note").isEmpty(), 10_000);
+            socket.sendText("{\"type\":\"conduct\",\"command\":\"tempo\",\"value\":960}", true).join();
+
+            assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
+            assertEquals("FINISHED", client.ofType("status").stream().reduce((a, b) -> b).orElseThrow().path("kind").asText());
+            assertEquals(List.of(), errors(client));
+
+            // The head was arranged at 480 bpm (6 s), the parts after the command at 960 bpm (3 s).
+            List<JsonNode> sections = client.ofType("status").stream().filter(m -> "SECTION".equals(m.path("kind").asText())).toList();
+            long head = sections.get(0).path("atMs").asLong();
+            long pianoSolo = sections.get(1).path("atMs").asLong();
+            long bassSolo = sections.get(2).path("atMs").asLong();
+            assertEquals(6_000, pianoSolo - head);
+            assertEquals(3_000, bassSolo - pianoSolo);
+
+            // The browser can watch the Conductor's command travel through the assistants to the musicians.
+            List<JsonNode> talk = client.ofType("conversation");
+            assertTrue(talk.stream().anyMatch(m -> "conductor".equals(m.path("conversationId").asText())
+                    && m.path("from").asText().endsWith("-conductor")));
+            assertEquals(2, talk.stream().filter(m -> "tempo".equals(m.path("conversationId").asText())
+                    && m.path("from").asText().endsWith("-assistant")).count());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void theConductorCanMuteAndSetTheVolumeOfOneMusician() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText(start(960, "duo"), true).join();
+            socket.sendText("{\"type\":\"conduct\",\"command\":\"mute\",\"instrument\":\"bass\"}", true).join();
+            socket.sendText("{\"type\":\"conduct\",\"command\":\"volume\",\"instrument\":\"piano\",\"value\":0.4}", true).join();
+
+            assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
+            assertEquals(List.of(), errors(client));
+            assertFalse(played(client, "BASS"), "the muted bass played");
+            assertTrue(played(client, "PIANO"));
+            assertTrue(client.ofType("note").stream().filter(n -> "PIANO".equals(n.path("instrument").asText()))
+                    .allMatch(n -> n.path("velocity").asInt() <= 45), "the piano was not turned down");
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void theConductorRefusesCommandsItCannotCarryOut() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"conduct\",\"command\":\"tempo\",\"value\":120}", true).join();
+            waitFor(() -> errors(client).size() == 1, 5_000);
+            assertEquals(List.of("conduct: no performance is running"), errors(client));
+
+            socket.sendText(start(120, "duo"), true).join();
+            for (String bad : List.of(
+                    "{\"type\":\"conduct\",\"command\":\"dance\"}",
+                    "{\"type\":\"conduct\",\"command\":\"tempo\",\"value\":5000}",
+                    "{\"type\":\"conduct\",\"command\":\"volume\",\"instrument\":\"kazoo\",\"value\":1}",
+                    "{\"type\":\"conduct\",\"command\":\"volume\",\"instrument\":\"bass\",\"value\":9}")) {
+                socket.sendText(bad, true).join();
+            }
+            waitFor(() -> errors(client).size() == 5, 5_000);
+            assertEquals(List.of("conduct: no performance is running",
+                    "conduct: command must be tempo, volume, mute or unmute",
+                    "conduct: tempo must be 60-960",
+                    "conduct: instrument must be one of sax, piano, bass, drums",
+                    "conduct: volume must be between 0 and 1.5"), errors(client));
+            // None of that disturbed the performance, which is still running.
+            assertEquals(1L, client.finished.getCount());
+            socket.sendText("{\"type\":\"stop\"}", true).join();
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
     @Test
     void rejectsAnUnknownEnsemble() throws Exception {
         Client client = new Client();

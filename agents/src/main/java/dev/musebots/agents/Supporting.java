@@ -29,6 +29,7 @@ final class Supporting {
         agent.addBehaviour(new IntroResponder(agent));
         agent.addBehaviour(new AccompanyReceiver(agent));
         agent.addBehaviour(new TakeLeadReceiver(agent));
+        agent.addBehaviour(new TempoReceiver(agent));
         // Acknowledgements are published when they are sent; receiving them needs no further action.
         agent.addBehaviour(new Drain(agent, MessageTemplate.and(
                 MessageTemplate.MatchPerformative(ACLMessage.INFORM),
@@ -95,9 +96,9 @@ final class Supporting {
         @Override
         protected ACLMessage handleAcceptProposal(ACLMessage cfp, ACLMessage propose, ACLMessage accept) {
             Protocol.IntroAssignment assignment = Json.read(accept.getContent(), Protocol.IntroAssignment.class);
-            long durationMs = agent.structure().clock().barsToMillis(INTRO_BARS);
+            long durationMs = agent.musicClock().barsToMillis(INTRO_BARS);
             Segment intro = new Segment("INTRO", PhraseKind.INTRO, agent.config().instrument(),
-                    assignment.startMs(), assignment.startMs() + durationMs);
+                    assignment.startMs(), assignment.startMs() + durationMs, agent.tempoBpm());
 
             agent.compose(PhraseKind.INTRO, intro);
             agent.record(intro);
@@ -146,6 +147,30 @@ final class Supporting {
                         + segment.id());
                 agent.send(reply);
             });
+        }
+    }
+
+    /** Takes note when the Conductor, through the Ensemble Assistant, changes the tempo. */
+    private static final class TempoReceiver extends CyclicBehaviour {
+
+        private final MessageTemplate template = MessageTemplate.and(
+                MessageTemplate.MatchPerformative(ACLMessage.INFORM),
+                MessageTemplate.MatchConversationId(Protocol.TEMPO));
+        private final MusicianAgent agent;
+
+        TempoReceiver(MusicianAgent agent) {
+            super(agent);
+            this.agent = agent;
+        }
+
+        @Override
+        public void action() {
+            ACLMessage message = myAgent.receive(template);
+            if (message == null) {
+                block();
+                return;
+            }
+            agent.conductTempo(Json.read(message.getContent(), Protocol.TempoChange.class).bpm());
         }
     }
 

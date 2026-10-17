@@ -25,17 +25,20 @@ node --test server/src/test/js/*.test.mjs   # the browser drum kit (needs Node 2
 ```
  browser (Tone.js) <-- WebSocket: note / conversation / status --  server  --  JADE agents (3 per instrument)
         |                                                                       sax, piano, bass, drums
-   schedules each note on the Web Audio clock                                   each = musician + composer + synchronizer
+   schedules each note on the Web Audio clock                                   each = musician + composer + synchronizer + assistant
+        ^                                                                       ^
+        |   WebSocket: conduct (tempo / volume / mute)  -->  server  -->  conductor agent  -->  every assistant
 ```
 
 1. The browser connects, syncs its clock with the server (best of 8 ping rounds), and sends `start`.
-2. The server starts one **Musebot** per instrument for that session. A Musebot is three JADE agents:
+2. The server starts one **Musebot** per instrument for that session. A Musebot is four JADE agents:
 
    | Agent | Job |
    |---|---|
    | **Musician** | Decides. Takes part in the ensemble's conversations, and runs the performance while it has the lead. |
    | **Composer** | Writes the notes when its musician asks (FIPA Request) and publishes them. |
    | **Synchronizer** | Keeps the timeline of the performance. When a musician asks "when does the solo start?", it answers from memory, or asks the other Musebots' synchronizers (and keeps asking until someone knows). |
+| **Ensemble Assistant** | The go-between with the Conductor. It picks out the Conductor's commands that concern its Musebot and relays them: tempo to the musician, volume and mute to the composer. |
 
 3. **The tune.** The opening leader waits for the ensemble (directory lookup), shares the song, then runs a
    **FIPA Contract Net** for the intro: every accompanist proposes, the leader accepts the shortest offer
@@ -54,7 +57,21 @@ node --test server/src/test/js/*.test.mjs   # the browser drum kit (needs Node 2
 5. **Nobody drops out** (`SupportPolicy`): after its own solo a musician goes back to accompanying. Behind a
    drum solo everyone plays a lighter part so the fills can be heard, and everyone plays the ending.
 
-6. Agents publish `NoteEvent`s with absolute timestamps ahead of time. The browser converts them to audio-clock
+6. **The Conductor.** In the Musebot Ensemble platform the Conductor is an external program that controls the
+   ensemble. Here it is the web page: the server gives each command to a per-session `ConductorAgent` (through
+   JADE's object-to-agent channel), which broadcasts it to every Ensemble Assistant.
+
+   | Command | What happens |
+   |---|---|
+   | `tempo` | Every assistant tells its musician. The leader uses the new tempo for the parts it arranges from then on. Each part remembers the tempo it was arranged at, so a part is always written consistently (a change is heard from the next part of the tune). |
+   | `volume` (one musician) | The assistant tells its composer, which scales the velocity of every note it releases from then on. |
+   | `mute` / `unmute` (one musician) | The assistant tells its composer to stop or resume handing on notes. The tune goes on; that musician just sits out. |
+
+   A composer writes a whole phrase at once but only hands its notes to the listener about a bar before they
+   are due (`noteLookaheadMs`), which is why volume and mute are heard within about a bar rather than at the next
+   part of the tune.
+
+7. Agents publish `NoteEvent`s with absolute timestamps ahead of time. The browser converts them to audio-clock
    time, so network jitter does not affect rhythm. `SECTION` status events tell the UI what is playing and when.
 
 The **ensemble** option in the UI chooses the full quartet (sax leading, piano, bass, drums) or the
@@ -81,7 +98,7 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 | Module | Responsibility | Depends on |
 |---|---|---|
 | `core` | Music domain (chords, songs, clock, timeline `Segment`), events, `PhraseComposer` strategy and composers, `SupportPolicy`. No frameworks. | nothing |
-| `agents` | The three JADE agents (`MusicianAgent`, `ComposerAgent`, `SynchronizerAgent`), their protocols, and `EnsembleRuntime` that hosts sessions. | `core`, JADE |
+| `agents` | The JADE agents (`MusicianAgent`, `ComposerAgent`, `SynchronizerAgent`, `EnsembleAssistantAgent`, and the session's `ConductorAgent`), their protocols, and `EnsembleRuntime` that hosts sessions. | `core`, JADE |
 | `server` | Javalin HTTP + WebSocket, browser client in `src/main/resources/public`. | `agents` |
 
 ### Design choices
@@ -109,6 +126,17 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 | musician and its composer | `compose` | REQUEST, answered by INFORM |
 | musician and its synchronizer | `sync-record` / `sync-query` | INFORM / QUERY-REF (answered by INFORM or FAILURE) |
 | synchronizers | `sync-peer` | QUERY-REF (answered by INFORM or FAILURE) |
+| Conductor and every assistant | `conductor` | INFORM (broadcast) |
+| assistant and its musician | `tempo` | INFORM |
+| assistant and its composer | `mix` | INFORM |
+
+### WebSocket messages (`/ws`)
+
+| Direction | Message |
+|---|---|
+| client to server | `{"type":"start","tempo":120,"soloChoruses":1,"ensemble":"quartet"}`, `{"type":"stop"}`, `{"type":"time.sync","t0":...}` |
+| client to server | `{"type":"conduct","command":"tempo","value":140}`, `{"type":"conduct","command":"volume","instrument":"bass","value":0.7}`, `{"type":"conduct","command":"mute","instrument":"sax"}` (and `unmute`) |
+| server to client | `hello`, `time.sync`, `note`, `conversation`, `status` (`ENSEMBLE_READY`, `STARTED`, `SECTION`, `FINISHED`, `FAILED`), `error` (with a `source` of `start`, `conduct` or `message`) |
 
 ## Mapping to the paper
 
@@ -120,12 +148,13 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 | Solo, passing the lead, ending | `Leading` (`take-lead`, `accompany`), `SupportPolicy` |
 | Synchronizer agent (timing shared between Musebots) | `SynchronizerAgent` |
 | Composer agent (jMusic) | `ComposerAgent` and `PhraseComposer` in `core` (no jMusic: only note data is needed) |
-| Ensemble Assistant agent, Musebot Conductor (Max patch, OSC) | The server and WebSocket protocol (no separate agent yet) |
+| Ensemble Assistant agent | `EnsembleAssistantAgent` |
+| Musebot Conductor (Max patch, OSC) | The web page, the server's `conduct` messages, and `ConductorAgent` as the gateway into the agents |
 
 ## Not yet built
 
-- An Ensemble Assistant agent per Musebot (today the server plays the Conductor's part: tempo and start/stop)
-- Changing the tempo or the ensemble while playing (parts are arranged about two bars ahead, so this is now possible)
+- More Conductor commands from the original platform, and speaking its OSC messages so Musebots from other developers can take part
+- A tempo change heard sooner than the next part of the tune (parts are a chorus long)
 - Choosing who solos, or how many choruses each, from the UI; trading fours; a final head; dynamics that follow the soloist
 - Better instrument sounds (the sax, piano and drums are Tone.js synthesis for now; SoundFonts or samples would sound more real)
 - Letting third-party Musebots join over the network

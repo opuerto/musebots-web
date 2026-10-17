@@ -43,26 +43,31 @@ public final class EnsembleRuntime implements AutoCloseable {
             for (Instrument instrument : everyone) {
                 launchMusebot(session, sink, instrument, started);
             }
+            AgentController conductor = start(Names.conductor(session.sessionId()), new ConductorAgent(
+                    new ConductorConfig(session.sessionId(), everyone, sink, session.clock())));
+            started.add(conductor);
+            return new Performance(session.sessionId(), started, conductor);
         } catch (StaleProxyException e) {
-            new Performance(session.sessionId(), started).stop();
+            new Performance(session.sessionId(), started, null).stop();
             throw new IllegalStateException("Could not start session " + session.sessionId(), e);
         }
-        return new Performance(session.sessionId(), started);
     }
 
-    /** A Musebot is three agents: the composer and synchronizer first, so they are ready when the musician is. */
+    /** A Musebot is four agents: the others first, so they are ready when the musician is. */
     private void launchMusebot(SessionConfig session, EventSink sink, Instrument instrument,
                                List<AgentController> started) throws StaleProxyException {
         String id = session.sessionId();
         ComposerConfig composer = new ComposerConfig(id, instrument,
                 Composers.defaultFor(instrument, new Random(session.seed() + instrument.ordinal())),
-                sink, session.clock());
+                sink, session.clock(), session.noteLookaheadMs());
         SynchronizerConfig synchronizer = new SynchronizerConfig(id, instrument, sink, session.clock());
         boolean opens = instrument == session.leader();
         MusicianConfig musician = new MusicianConfig(id, instrument, opens, sink, session.clock(),
                 opens ? session.song() : null, session.soloOrder(), session.soloChoruses(),
                 session.ensembleSize(), session.leadInMs(), session.planAheadMs());
 
+        started.add(start(Names.of(id, instrument, Names.Part.ASSISTANT),
+                new EnsembleAssistantAgent(new AssistantConfig(id, instrument, sink, session.clock()))));
         started.add(start(Names.of(id, instrument, Names.Part.COMPOSER), new ComposerAgent(composer)));
         started.add(start(Names.of(id, instrument, Names.Part.SYNCHRONIZER), new SynchronizerAgent(synchronizer)));
         started.add(start(Names.of(id, instrument, Names.Part.MUSICIAN), new MusicianAgent(musician)));

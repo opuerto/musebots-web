@@ -36,6 +36,14 @@ public final class Protocol {
     /** Musician to its synchronizer: "when does this part happen?" (QUERY-REF, answered by INFORM or FAILURE). */
     public static final String SYNC_QUERY = "sync-query";
 
+    // From the Conductor
+    /** Conductor to every Ensemble Assistant: a command from whoever is conducting (INFORM). */
+    public static final String CONDUCTOR = "conductor";
+    /** Ensemble Assistant to its musician: the tempo changed (INFORM). */
+    public static final String TEMPO = "tempo";
+    /** Ensemble Assistant to its composer: change the volume or mute (INFORM). */
+    public static final String MIX = "mix";
+
     // Between synchronizers
     /** Synchronizer to synchronizers: "do you know when this part happens?" (QUERY-REF, answered by INFORM or FAILURE). */
     public static final String SYNC_PEER = "sync-peer";
@@ -81,6 +89,30 @@ public final class Protocol {
 
     /** A composer reporting what it wrote. */
     public record Composed(String segmentId, PhraseKind kind, Instrument instrument, int notes) {
+    }
+
+    /** What the Conductor can ask of the ensemble. */
+    public enum Command {
+        /** Change the tempo for the parts of the tune arranged from now on. */
+        TEMPO,
+        /** Scale one musician's loudness. */
+        VOLUME,
+        /** Silence one musician. */
+        MUTE,
+        /** Let a muted musician play again. */
+        UNMUTE
+    }
+
+    /** A command from the Conductor. {@code target} is the musician it is for (null: everyone); {@code value} is the bpm or gain. */
+    public record Conduct(Command command, Instrument target, double value) {
+    }
+
+    /** An Ensemble Assistant telling its musician the tempo changed. */
+    public record TempoChange(int bpm) {
+    }
+
+    /** An Ensemble Assistant telling its composer how to play: either field may be null (unchanged). */
+    public record Mix(Double gain, Boolean muted) {
     }
 
     /** Asks a synchronizer when a segment happens. */

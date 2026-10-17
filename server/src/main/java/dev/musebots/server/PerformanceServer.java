@@ -3,8 +3,10 @@ package dev.musebots.server;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.musebots.agents.EnsembleRuntime;
 import dev.musebots.agents.Performance;
+import dev.musebots.agents.Protocol;
 import dev.musebots.agents.SessionConfig;
 import dev.musebots.core.EventSink;
+import dev.musebots.core.Instrument;
 import dev.musebots.core.Songs;
 import dev.musebots.core.StatusEvent;
 import io.javalin.Javalin;
@@ -21,9 +23,13 @@ import java.util.concurrent.Executors;
  * Serves the web client and runs one performance per browser connection.
  *
  * <p>Protocol (JSON over WebSocket at {@code /ws}). Client to server: {@code time.sync}, {@code start}
- * (tempo, soloChoruses, ensemble = quartet or duo), {@code stop}. Server to client: see {@link Wire}.
+ * (tempo, soloChoruses, ensemble = quartet or duo), {@code stop}, and {@code conduct}
+ * (command = tempo, volume, mute or unmute; instrument; value). Server to client: see {@link Wire}.
  */
 public final class PerformanceServer implements AutoCloseable {
+
+    /** Volume is a multiplier: 1 is as written, above 1 is louder (velocities are capped at the MIDI maximum). */
+    private static final double MAX_VOLUME = 1.5;
 
     private final EnsembleRuntime runtime;
     private final ServerLimits limits;
@@ -69,7 +75,8 @@ public final class PerformanceServer implements AutoCloseable {
             case "time.sync" -> ctx.send(Wire.timeSync(message.path("t0").asLong(), System.currentTimeMillis()));
             case "start" -> start(ctx, message);
             case "stop" -> stop(ctx.sessionId());
-            default -> ctx.send(Wire.error("unknown message type"));
+            case "conduct" -> conduct(ctx, message);
+            default -> ctx.send(Wire.error("message", "unknown message type"));
         }
     }
 
@@ -77,17 +84,17 @@ public final class PerformanceServer implements AutoCloseable {
         int tempo = message.path("tempo").asInt(120);
         int soloChoruses = message.path("soloChoruses").asInt(1);
         if (tempo < limits.minTempo() || tempo > limits.maxTempo() || soloChoruses < 1 || soloChoruses > limits.maxSoloChoruses()) {
-            ctx.send(Wire.error("tempo must be " + limits.minTempo() + "-" + limits.maxTempo()
+            ctx.send(Wire.error("start", "tempo must be " + limits.minTempo() + "-" + limits.maxTempo()
                     + " and soloChoruses 1-" + limits.maxSoloChoruses()));
             return;
         }
         String ensemble = message.path("ensemble").asText("quartet");
         if (!ensemble.equals("quartet") && !ensemble.equals("duo")) {
-            ctx.send(Wire.error("ensemble must be 'quartet' or 'duo'"));
+            ctx.send(Wire.error("start", "ensemble must be 'quartet' or 'duo'"));
             return;
         }
         if (running.containsKey(ctx.sessionId())) {
-            ctx.send(Wire.error("a performance is already running"));
+            ctx.send(Wire.error("start", "a performance is already running"));
             return;
         }
 
@@ -104,6 +111,47 @@ public final class PerformanceServer implements AutoCloseable {
                 ? SessionConfig.duo(sessionId, Songs.bluesInF(tempo), soloChoruses)
                 : SessionConfig.quartet(sessionId, Songs.bluesInF(tempo), soloChoruses);
         running.put(ctx.sessionId(), runtime.perform(session, sink));
+    }
+
+    /** Passes a Conductor command (tempo, volume, mute, unmute) to the performance this browser started. */
+    private void conduct(WsContext ctx, JsonNode message) {
+        Performance performance = running.get(ctx.sessionId());
+        if (performance == null) {
+            ctx.send(Wire.error("conduct", "no performance is running"));
+            return;
+        }
+        Protocol.Command command;
+        try {
+            command = Protocol.Command.valueOf(message.path("command").asText().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            ctx.send(Wire.error("conduct", "command must be tempo, volume, mute or unmute"));
+            return;
+        }
+
+        Instrument target = null;
+        if (command != Protocol.Command.TEMPO) {
+            try {
+                target = Instrument.valueOf(message.path("instrument").asText().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                ctx.send(Wire.error("conduct", "instrument must be one of sax, piano, bass, drums"));
+                return;
+            }
+        }
+        double value = message.path("value").asDouble(0);
+        if (command == Protocol.Command.TEMPO && (value < limits.minTempo() || value > limits.maxTempo())) {
+            ctx.send(Wire.error("conduct", "tempo must be " + limits.minTempo() + "-" + limits.maxTempo()));
+            return;
+        }
+        if (command == Protocol.Command.VOLUME && (value < 0 || value > MAX_VOLUME)) {
+            ctx.send(Wire.error("conduct", "volume must be between 0 and " + MAX_VOLUME));
+            return;
+        }
+
+        try {
+            performance.conduct(new Protocol.Conduct(command, target, value));
+        } catch (IllegalStateException e) {
+            ctx.send(Wire.error("conduct", "the performance is over"));
+        }
     }
 
     private void stop(String connectionId) {

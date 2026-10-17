@@ -1,5 +1,6 @@
 package dev.musebots.agents;
 
+import dev.musebots.core.MusicClock;
 import dev.musebots.core.PhraseKind;
 import dev.musebots.core.Segment;
 import dev.musebots.core.SongStructure;
@@ -25,6 +26,8 @@ public final class MusicianAgent extends MusebotAgent {
     private final Leading leading;
     private final AtomicInteger queries = new AtomicInteger();
     private volatile SongStructure structure;
+    /** Set when the Conductor changes the tempo; until then the song's own tempo applies. */
+    private volatile Integer conductedTempo;
 
     public MusicianAgent(MusicianConfig config) {
         super(config.sessionId(), config.sink(), config.clock());
@@ -49,6 +52,20 @@ public final class MusicianAgent extends MusebotAgent {
         this.structure = song;
     }
 
+    /** The tempo for anything this musician arranges from now on. */
+    int tempoBpm() {
+        return conductedTempo != null ? conductedTempo : structure.tempoBpm();
+    }
+
+    void conductTempo(int bpm) {
+        this.conductedTempo = bpm;
+    }
+
+    /** The beat of the music at the current tempo. */
+    MusicClock musicClock() {
+        return new MusicClock(tempoBpm(), structure.beatsPerBar());
+    }
+
     @Override
     protected void setup() {
         registerAs(Protocol.SERVICE_MUSICIAN);
@@ -68,9 +85,11 @@ public final class MusicianAgent extends MusebotAgent {
 
     /** Asks this Musebot's composer to write a phrase for the segment. */
     void compose(PhraseKind kind, Segment segment) {
-        int bars = structure.clock().millisToBars(segment.durationMs());
+        // Write it at the tempo the segment was arranged at, not at whatever the tempo is now.
+        MusicClock clock = new MusicClock(segment.tempoBpm(), structure.beatsPerBar());
+        int bars = clock.millisToBars(segment.durationMs());
         Protocol.ComposeRequest job = new Protocol.ComposeRequest(
-                kind, segment.id(), structure.barsFor(kind, bars), structure.clock(), segment.startMs());
+                kind, segment.id(), structure.barsFor(kind, bars), clock, segment.startMs());
         ACLMessage request = newMessage(ACLMessage.REQUEST, Protocol.COMPOSE, job);
         request.setProtocol(FIPANames.InteractionProtocol.FIPA_REQUEST);
         request.addReceiver(Names.aid(config.sessionId(), config.instrument(), Names.Part.COMPOSER));

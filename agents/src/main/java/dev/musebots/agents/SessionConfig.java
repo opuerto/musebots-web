@@ -18,6 +18,8 @@ public record SessionConfig(
         long leadInMs,
         /** How long before a part ends the leader starts arranging the next one. */
         long planAheadMs,
+        /** How long before a note is due its composer hands it to the listener. */
+        long noteLookaheadMs,
         long seed,
         Clock clock) {
 
@@ -46,7 +48,8 @@ public record SessionConfig(
         List<Instrument> everyone = new ArrayList<>(List.of(leader));
         everyone.addAll(accompanists);
         long planAheadMs = Math.max(1_500, song.clock().barsToMillis(2));
+        long lookaheadMs = Math.max(1_000, song.clock().barsToMillis(1));
         return new SessionConfig(sessionId, song, soloChoruses, leader, accompanists, everyone,
-                2_000, planAheadMs, System.nanoTime(), Clock.systemUTC());
+                2_000, planAheadMs, lookaheadMs, System.nanoTime(), Clock.systemUTC());
     }
 }

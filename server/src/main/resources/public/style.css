@@ -18,3 +18,9 @@ button:disabled { cursor: not-allowed; }
 .conversation li[data-performative="QUERY-REF"] { border-color: #0ea5e9; }
 .conversation li[data-part="composer"], .conversation li[data-part="synchronizer"] { margin-left: 1.25rem; }
 .now { font-size: 1.4rem; }
+.conductor { margin: 1rem 0; padding: .5rem 1rem; border: 1px solid #8884; border-radius: 6px; }
+.conductor h2 { margin: .25rem 0; font-size: 1.1rem; }
+.conductor .hint { margin: .25rem 0 .75rem; font-size: .85rem; opacity: .7; }
+.mixer { display: grid; gap: .5rem; }
+.mixer .channel { display: grid; grid-template-columns: 5rem 1fr 4rem 4rem; align-items: center; gap: .75rem; }
+.mixer .channel output { font-variant-numeric: tabular-nums; text-align: right; }

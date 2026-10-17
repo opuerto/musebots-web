@@ -53,7 +53,8 @@ final class Wire {
         return MAPPER.createObjectNode().put("type", "time.sync").put("t0", clientT0).put("serverMs", serverMs).toString();
     }
 
-    static String error(String message) {
-        return MAPPER.createObjectNode().put("type", "error").put("message", message).toString();
+    /** {@code source} is the kind of client message that went wrong ("start", "conduct", ...), so the page can react. */
+    static String error(String source, String message) {
+        return MAPPER.createObjectNode().put("type", "error").put("source", source).put("message", message).toString();
     }
 }

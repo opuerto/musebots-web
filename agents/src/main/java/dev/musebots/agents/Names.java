@@ -9,7 +9,8 @@ final class Names {
     enum Part {
         MUSICIAN,
         COMPOSER,
-        SYNCHRONIZER
+        SYNCHRONIZER,
+        ASSISTANT
     }
 
     private Names() {
@@ -17,6 +18,11 @@ final class Names {
 
     static String of(String sessionId, Instrument instrument, Part part) {
         return sessionId + "-" + instrument.name().toLowerCase() + "-" + part.name().toLowerCase();
+    }
+
+    /** The session's Conductor gateway. */
+    static String conductor(String sessionId) {
+        return sessionId + "-conductor";
     }
 
     static AID aid(String sessionId, Instrument instrument, Part part) {

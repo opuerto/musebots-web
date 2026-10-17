@@ -136,7 +136,7 @@ final class Leading {
         SongStructure song = config.song();
         long headStart = startMs + durationMs;
         Segment head = new Segment("HEAD", PhraseKind.HEAD, config.instrument(), headStart,
-                headStart + song.clock().barsToMillis(song.allBars().size()));
+                headStart + agent.musicClock().barsToMillis(song.allBars().size()), agent.tempoBpm());
         lead(head, PhraseKind.HEAD, config.soloOrder(), true);
     }
 
@@ -173,7 +173,7 @@ final class Leading {
         SongStructure song = agent.structure();
         if (soloists.isEmpty()) {
             Segment ending = new Segment("ENDING", PhraseKind.ENDING, config.instrument(), startMs,
-                    startMs + song.clock().barsToMillis(1));
+                    startMs + agent.musicClock().barsToMillis(1), agent.tempoBpm());
             lead(ending, PhraseKind.ENDING, List.of(), true);
             return;
         }
@@ -181,7 +181,7 @@ final class Leading {
         Instrument next = soloists.get(0);
         List<Instrument> after = soloists.subList(1, soloists.size());
         Segment solo = new Segment("SOLO-" + next.name(), PhraseKind.SOLO, next, startMs,
-                startMs + song.clock().barsToMillis(song.allBars().size() * config.soloChoruses()));
+                startMs + agent.musicClock().barsToMillis(song.allBars().size() * config.soloChoruses()), agent.tempoBpm());
         if (next == config.instrument()) {
             lead(solo, PhraseKind.SOLO, after, true);
         } else {

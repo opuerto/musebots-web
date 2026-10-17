@@ -81,7 +81,7 @@ class SynchronizerAgentTest {
     @Test
     void aSynchronizerAsksItsPeersAndKeepsAskingUntilSomeoneKnows() throws Exception {
         startSynchronizers("race", Instrument.PIANO, Instrument.BASS);
-        Segment solo = new Segment("SOLO-BASS", PhraseKind.SOLO, Instrument.BASS, 5_000, 8_000);
+        Segment solo = new Segment("SOLO-BASS", PhraseKind.SOLO, Instrument.BASS, 5_000, 8_000, 120);
 
         // The bass musician asks before the piano's musician has decided anything; the piano records the
         // segment half a second later. The bass synchronizer must still come back with the answer.
@@ -116,7 +116,7 @@ class SynchronizerAgentTest {
     @Test
     void aSynchronizerAnswersFromMemoryWithoutAskingAnyone() throws Exception {
         startSynchronizers("memory", Instrument.PIANO);
-        Segment head = new Segment("HEAD", PhraseKind.HEAD, Instrument.PIANO, 1_000, 4_000);
+        Segment head = new Segment("HEAD", PhraseKind.HEAD, Instrument.PIANO, 1_000, 4_000, 120);
         StandIn musician = new StandIn("memory");
         runtime.start("memory-stand-in", musician);
         musician.listenFor(Protocol.SYNC_QUERY);

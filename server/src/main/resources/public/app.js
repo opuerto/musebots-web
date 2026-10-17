@@ -13,6 +13,8 @@ const els = {
   stop: document.getElementById('stop'),
   status: document.getElementById('status'),
   conversation: document.getElementById('conversation'),
+  conductor: document.getElementById('conductor'),
+  mixer: document.getElementById('mixer'),
 };
 
 let socket;
@@ -20,6 +22,9 @@ let clockOffsetMs = 0; // serverTime - clientTime, from the lowest-latency sync 
 let bestRtt = Infinity;
 let instruments = null;
 let timers = []; // pending "now playing" label changes
+let performing = false; // whether this browser has a performance running
+
+const ENSEMBLES = { quartet: ['SAX', 'PIANO', 'BASS', 'DRUMS'], duo: ['PIANO', 'BASS'] };
 
 const serverNow = () => Date.now() + clockOffsetMs;
 const setStatus = (text) => { els.status.textContent = text; };
@@ -57,7 +62,14 @@ function handle(message) {
     case 'note': schedule(message); break;
     case 'conversation': log(message); break;
     case 'status': onStatus(message); break;
-    case 'error': setStatus(`Error: ${message.message}`); els.start.disabled = false; break;
+    case 'error':
+      setStatus(`Error: ${message.message}`);
+      if (message.source === 'start') { // the performance never began
+        els.start.disabled = false;
+        els.stop.disabled = true;
+        setPerforming(false);
+      }
+      break;
   }
 }
 
@@ -123,8 +135,34 @@ function log(message) {
 const partOf = (name) => name.split('-')[2];
 const shortName = (name) => {
   const [, instrument, part] = name.split('-');
-  return part === 'musician' ? instrument : `${instrument} ${part}`;
+  return !part || part === 'musician' ? instrument : `${instrument} ${part}`;
 };
+
+// ---- Conductor: tempo, volume and mute, sent to the Ensemble Assistants ----
+
+const conduct = (command, fields = {}) => socket.send(JSON.stringify({ type: 'conduct', command, ...fields }));
+
+function buildMixer(instruments) {
+  els.mixer.replaceChildren(...instruments.map((instrument) => {
+    const row = document.createElement('div');
+    row.className = 'channel';
+    row.innerHTML = `<strong></strong><input type="range" min="0" max="150" value="100" aria-label="volume"><output>100%</output>
+      <label><input type="checkbox"> mute</label>`;
+    row.querySelector('strong').textContent = instrument.toLowerCase();
+    const slider = row.querySelector('input[type=range]');
+    const output = row.querySelector('output');
+    slider.addEventListener('input', () => { output.textContent = `${slider.value}%`; });
+    slider.addEventListener('change', () => conduct('volume', { instrument, value: Number(slider.value) / 100 }));
+    row.querySelector('input[type=checkbox]').addEventListener('change', (event) =>
+      conduct(event.target.checked ? 'mute' : 'unmute', { instrument }));
+    return row;
+  }));
+}
+
+function setPerforming(value) {
+  performing = value;
+  els.conductor.hidden = !value;
+}
 
 // The server announces a part of the tune when it arranges it, a little before it is heard: show it on time.
 function showAt(startMs, text) {
@@ -141,12 +179,14 @@ function onStatus(message) {
     case 'ENSEMBLE_READY': setStatus('The ensemble is assembled…'); break;
     case 'STARTED': showAt(message.atMs, 'Intro'); break;
     case 'SECTION': showAt(message.atMs, message.message); break;
-    case 'FINISHED': setStatus('Finished.'); els.start.disabled = false; els.stop.disabled = true; break;
-    case 'FAILED': clearTimers(); setStatus(`Failed: ${message.message}`); els.start.disabled = false; els.stop.disabled = true; break;
+    case 'FINISHED': setStatus('Finished.'); els.start.disabled = false; els.stop.disabled = true; setPerforming(false); break;
+    case 'FAILED': clearTimers(); setStatus(`Failed: ${message.message}`); els.start.disabled = false; els.stop.disabled = true; setPerforming(false); break;
   }
 }
 
 els.tempo.addEventListener('input', () => { els.tempoOut.textContent = els.tempo.value; });
+// Before the start this chooses the tempo; during a performance it is the Conductor changing it.
+els.tempo.addEventListener('change', () => { if (performing) conduct('tempo', { value: Number(els.tempo.value) }); });
 
 els.start.addEventListener('click', async () => {
   await Tone.start(); // browsers only allow audio after a user gesture
@@ -155,6 +195,8 @@ els.start.addEventListener('click', async () => {
   els.conversation.replaceChildren();
   els.start.disabled = true;
   els.stop.disabled = false;
+  buildMixer(ENSEMBLES[els.ensemble.value]);
+  setPerforming(true);
   setStatus('Asking the musicians to gather…');
   socket.send(JSON.stringify({ type: 'start', tempo: Number(els.tempo.value), soloChoruses: Number(els.soloChoruses.value), ensemble: els.ensemble.value }));
 });
@@ -167,6 +209,7 @@ els.stop.addEventListener('click', () => {
   instruments = null;
   els.start.disabled = false;
   els.stop.disabled = true;
+  setPerforming(false);
   setStatus('Stopped.');
 });
 
