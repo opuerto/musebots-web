@@ -14,8 +14,8 @@ Requires Java 17+. No other install: the Gradle wrapper fetches everything else.
 
 ```
 ./gradlew :server:run        # then open http://localhost:7070
-./gradlew test               # the JVM tests
-node --test server/src/test/js/*.test.mjs   # the browser drum kit (needs Node 20+)
+./gradlew test               # the JVM tests and the browser tests (the latter need Node 20+, and are skipped without it)
+node --test server/src/test/js/*.test.mjs   # just the browser tests
 ```
 
 `PORT` (default 7070) sets the web port and `JADE_PORT` (default 1099) the internal JADE platform port.

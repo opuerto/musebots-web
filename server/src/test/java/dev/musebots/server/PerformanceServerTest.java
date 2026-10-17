@@ -81,13 +81,51 @@ class PerformanceServerTest {
                 .buildAsync(URI.create("ws://localhost:" + server.port() + "/ws"), client).join();
     }
 
+    private HttpResponse<String> get(String path) throws Exception {
+        return HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + server.port() + path)).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
     @Test
     void servesTheWebClient() throws Exception {
-        HttpResponse<String> response = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create("http://localhost:" + server.port() + "/")).build(),
-                HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = get("/");
         assertEquals(200, response.statusCode());
         assertTrue(response.body().contains("Musebots"));
+    }
+
+    /** If the page imports a script the server does not serve, the page silently does nothing: check every one. */
+    @Test
+    void servesEveryScriptAndStylesheetThePageNeeds() throws Exception {
+        java.util.Set<String> needed = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher page = java.util.regex.Pattern.compile("(?:src|href)=\"([^\"]+)\"").matcher(get("/").body());
+        while (page.find()) {
+            if (!page.group(1).startsWith("http")) {
+                needed.add("/" + page.group(1));
+            }
+        }
+        assertTrue(needed.contains("/app.js") && needed.contains("/style.css"), "the page should load app.js and style.css: " + needed);
+
+        // Follow imports between modules: app.js imports instruments.js, which imports drums.js.
+        java.util.Deque<String> queue = new java.util.ArrayDeque<>(needed);
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        while (!queue.isEmpty()) {
+            String path = queue.poll();
+            if (!seen.add(path)) {
+                continue;
+            }
+            HttpResponse<String> response = get(path);
+            assertEquals(200, response.statusCode(), path + " is not served");
+            if (path.endsWith(".js")) {
+                assertTrue(response.headers().firstValue("content-type").orElse("").contains("javascript"),
+                        path + " is not served as JavaScript");
+                java.util.regex.Matcher imports = java.util.regex.Pattern.compile("from '\\./([^']+)'").matcher(response.body());
+                while (imports.find()) {
+                    queue.add("/" + imports.group(1));
+                }
+            }
+        }
+        assertTrue(seen.containsAll(java.util.List.of("/app.js", "/instruments.js", "/drums.js", "/style.css")), "crawled only " + seen);
     }
 
     private static String start(int tempo, String ensemble) {

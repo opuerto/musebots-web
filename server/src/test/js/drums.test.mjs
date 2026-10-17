@@ -1,41 +1,16 @@
 // Run with: node --test server/src/test/js
 //
-// A fake Tone.js whose instruments take the same arguments as the real ones (see drums.js), so a hit that
-// passes its arguments in the wrong order fails here instead of silently misfiring in the browser.
+// Uses the fake Tone.js in fake-tone.mjs, which takes the same arguments as the real one (see drums.js).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildDrumKit, DRUM_PIECES } from '../../main/resources/public/drums.js';
+import { makeFakeTone } from './fake-tone.mjs';
 
 const WHEN = 100.5; // an absolute audio time, well after any plausible velocity or duration
 
-function fakeTone(calls) {
-  class Instrument {
-    constructor(options = {}) { this.options = options; }
-    toDestination() { return this; }
-    connect() { return this; }
-    dispose() {}
-  }
-  // note, duration, time, velocity
-  class Pitched extends Instrument {
-    triggerAttackRelease(note, duration, time, velocity) {
-      calls.push({ kind: this.constructor.name, note, duration, time, velocity });
-    }
-  }
-  class MembraneSynth extends Pitched {}
-  class MetalSynth extends Pitched {}
-  // duration, time, velocity
-  class NoiseSynth extends Instrument {
-    triggerAttackRelease(duration, time, velocity) {
-      calls.push({ kind: 'NoiseSynth', duration, time, velocity });
-    }
-  }
-  class Filter extends Instrument {}
-  return { MembraneSynth, MetalSynth, NoiseSynth, Filter };
-}
-
 function hit(midi, velocity = 90) {
   const calls = [];
-  buildDrumKit(fakeTone(calls)).play({ midi, velocity }, WHEN);
+  buildDrumKit(makeFakeTone(calls)).play({ midi, velocity }, WHEN);
   return calls;
 }
 
