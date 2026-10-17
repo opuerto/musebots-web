@@ -20,6 +20,21 @@ node --test server/src/test/js/*.test.mjs   # just the browser tests
 
 `PORT` (default 7070) sets the web port and `JADE_PORT` (default 1099) the internal JADE platform port.
 
+## The page
+
+- **The band on stage:** a card per musician with its picture (`public/assets/*.svg`, plain SVG files you can replace
+  with your own artwork), what it is doing (leading, accompanying, playing softly, sitting out), the names of the notes
+  sounding right now, and its volume and mute.
+- **The chord chart,** laid out like a lead sheet: a row per section (A, A, B) with a chord in each bar. The section being
+  played is highlighted, and so is the bar, which fills as it goes by. Above it is where the band is
+  ("Piano solo · First chorus (AAB)"), and below it a plain-English caption of what is happening, such as who handed the
+  lead to whom.
+- **Two tunes:** *Blues in F* (12 bars, written as three lines) and *Song 1* (10 bars in AAB form). The chart of the chosen tune
+  is shown before you press Start.
+- **How it knows where the band is:** the server announces each part of the tune (`segment`: when it starts and ends, who
+  leads it, and the tempo it was arranged at) and the tune itself (`song`). The page works out the section and bar from
+  those and the clock it synced with the server, so the display stays in time with the sound. See `timeline.js`.
+
 ## How it works
 
 ```
@@ -72,7 +87,7 @@ node --test server/src/test/js/*.test.mjs   # just the browser tests
    part of the tune.
 
 7. Agents publish `NoteEvent`s with absolute timestamps ahead of time. The browser converts them to audio-clock
-   time, so network jitter does not affect rhythm. `SECTION` status events tell the UI what is playing and when.
+   time, so network jitter does not affect rhythm. `segment` events tell the UI which part of the tune is playing and when.
 
 The **ensemble** option in the UI chooses the full quartet (sax leading, piano, bass, drums) or the
 original piano-and-bass duo.
@@ -134,9 +149,9 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 
 | Direction | Message |
 |---|---|
-| client to server | `{"type":"start","tempo":120,"soloChoruses":1,"ensemble":"quartet"}`, `{"type":"stop"}`, `{"type":"time.sync","t0":...}` |
+| client to server | `{"type":"start","song":"blues","tempo":120,"soloChoruses":1,"ensemble":"quartet"}`, `{"type":"stop"}`, `{"type":"time.sync","t0":...}` |
 | client to server | `{"type":"conduct","command":"tempo","value":140}`, `{"type":"conduct","command":"volume","instrument":"bass","value":0.7}`, `{"type":"conduct","command":"mute","instrument":"sax"}` (and `unmute`) |
-| server to client | `hello`, `time.sync`, `note`, `conversation`, `status` (`ENSEMBLE_READY`, `STARTED`, `SECTION`, `FINISHED`, `FAILED`), `error` (with a `source` of `start`, `conduct` or `message`) |
+| server to client | `hello` (with the tunes on offer), `time.sync`, `song` (the chart of the tune about to be played), `segment` (a part of the tune: intro, head, a solo or the ending), `note`, `conversation`, `status` (`ENSEMBLE_READY`, `FINISHED`, `FAILED`), `error` (with a `source` of `start`, `conduct` or `message`) |
 
 ## Mapping to the paper
 

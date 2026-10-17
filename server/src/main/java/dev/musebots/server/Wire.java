@@ -5,6 +5,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.musebots.core.ConversationEvent;
 import dev.musebots.core.NoteEvent;
 import dev.musebots.core.PerformanceEvent;
+import dev.musebots.core.Section;
+import dev.musebots.core.Segment;
+import dev.musebots.core.SegmentEvent;
+import dev.musebots.core.SongStructure;
+import dev.musebots.core.Songs;
 import dev.musebots.core.StatusEvent;
 
 /**
@@ -36,6 +41,16 @@ final class Wire {
             node.put("conversationId", talk.conversationId());
             node.put("summary", talk.summary());
             node.put("atMs", talk.atMs());
+        } else if (event instanceof SegmentEvent part) {
+            Segment segment = part.segment();
+            node.put("type", "segment");
+            node.put("id", segment.id());
+            node.put("kind", segment.kind().name());
+            node.put("leader", segment.leader() == null ? null : segment.leader().name());
+            node.put("startMs", segment.startMs());
+            node.put("endMs", segment.endMs());
+            node.put("tempoBpm", segment.tempoBpm());
+            node.put("label", part.label());
         } else if (event instanceof StatusEvent status) {
             node.put("type", "status");
             node.put("kind", status.kind().name());
@@ -45,8 +60,39 @@ final class Wire {
         return node.toString();
     }
 
+    /** The tune about to be played: what the browser draws as the chord chart. */
+    static String song(String id, SongStructure song) {
+        ObjectNode node = songNode(id, song);
+        node.put("type", "song");
+        return node.toString();
+    }
+
+    private static ObjectNode songNode(String id, SongStructure song) {
+        ObjectNode node = MAPPER.createObjectNode();
+        node.put("id", id);
+        node.put("title", song.title());
+        node.put("form", song.form());
+        node.put("tempoBpm", song.tempoBpm());
+        node.put("beatsPerBar", song.beatsPerBar());
+        node.put("ending", song.ending().chord().symbol());
+        var sections = node.putArray("sections");
+        for (Section section : song.sections()) {
+            ObjectNode entry = sections.addObject();
+            entry.put("name", section.name());
+            var bars = entry.putArray("bars");
+            section.bars().forEach(bar -> bars.add(bar.chord().symbol()));
+        }
+        return node;
+    }
+
+    /** The first message of a connection: the server's clock, and the tunes on offer so the page can preview them. */
     static String hello(long serverMs) {
-        return MAPPER.createObjectNode().put("type", "hello").put("serverMs", serverMs).toString();
+        ObjectNode node = MAPPER.createObjectNode().put("type", "hello").put("serverMs", serverMs);
+        var songs = node.putArray("songs");
+        for (String id : Songs.IDS) {
+            songs.add(songNode(id, Songs.byId(id, 120)));
+        }
+        return node.toString();
     }
 
     static String timeSync(long clientT0, long serverMs) {

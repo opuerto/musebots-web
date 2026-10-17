@@ -125,16 +125,58 @@ class PerformanceServerTest {
                 }
             }
         }
-        assertTrue(seen.containsAll(java.util.List.of("/app.js", "/instruments.js", "/drums.js", "/style.css")), "crawled only " + seen);
+        assertTrue(seen.containsAll(java.util.List.of("/app.js", "/instruments.js", "/drums.js", "/style.css",
+                "/chart.js", "/stage.js", "/timeline.js", "/narrator.js", "/notes.js")), "crawled only " + seen);
+    }
+
+    /** The pictures of the band are loaded by the page as images, so nothing above would notice if one went missing. */
+    @Test
+    void servesAPictureForEveryInstrument() throws Exception {
+        java.util.Set<String> pictures = new java.util.TreeSet<>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("'(assets/[\\w]+\\.svg)'").matcher(get("/notes.js").body());
+        while (matcher.find()) {
+            pictures.add("/" + matcher.group(1));
+        }
+        assertEquals(java.util.Set.of("/assets/sax.svg", "/assets/piano.svg", "/assets/bass.svg", "/assets/drums.svg"), pictures);
+        for (String picture : pictures) {
+            HttpResponse<String> response = get(picture);
+            assertEquals(200, response.statusCode(), picture);
+            assertTrue(response.headers().firstValue("content-type").orElse("").startsWith("image/svg+xml"), picture);
+            assertTrue(response.body().contains("<svg"), picture + " is not an SVG");
+        }
+    }
+
+    @Test
+    void helloOffersTheTunesSoThePageCanPreviewTheirCharts() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            waitFor(() -> !client.ofType("hello").isEmpty(), 5_000);
+            JsonNode songs = client.ofType("hello").get(0).path("songs");
+            assertEquals(List.of("blues", "song1"),
+                    java.util.stream.StreamSupport.stream(songs.spliterator(), false).map(s -> s.path("id").asText()).toList());
+            JsonNode blues = songs.get(0);
+            assertEquals("Blues in F", blues.path("title").asText());
+            assertEquals("ABC", blues.path("form").asText());
+            assertEquals(3, blues.path("sections").size());
+            assertEquals("F7", blues.path("sections").get(0).path("bars").get(0).asText());
+            assertEquals("Song 1", songs.get(1).path("title").asText());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
     }
 
     private static String start(int tempo, String ensemble) {
         return "{\"type\":\"start\",\"tempo\":" + tempo + ",\"soloChoruses\":1,\"ensemble\":\"" + ensemble + "\"}";
     }
 
+    /** The parts of the tune after the intro, as the browser is told about them. */
+    private static List<JsonNode> parts(Client client) {
+        return client.ofType("segment").stream().filter(m -> !"INTRO".equals(m.path("kind").asText())).toList();
+    }
+
     private static List<String> sections(Client client) {
-        return client.ofType("status").stream().filter(m -> "SECTION".equals(m.path("kind").asText()))
-                .map(m -> m.path("message").asText()).toList();
+        return parts(client).stream().map(m -> m.path("label").asText()).toList();
     }
 
     private static boolean played(Client client, String instrument) {
@@ -168,6 +210,59 @@ class PerformanceServerTest {
 
             assertTrue(played(client, "BASS"));
             assertTrue(played(client, "PIANO"));
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void tellsTheBrowserTheChartBeforeThePerformanceStartsAndEachPartAsItIsArranged() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"tempo\":960,\"ensemble\":\"duo\",\"song\":\"song1\"}", true).join();
+            assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
+
+            // The chart comes first, before anything the band does.
+            JsonNode song = client.ofType("song").get(0);
+            int songAt = client.messages.indexOf(song);
+            assertTrue(client.messages.stream().limit(songAt).noneMatch(m -> List.of("note", "segment", "conversation").contains(m.path("type").asText())));
+            assertEquals("song1", song.path("id").asText());
+            assertEquals("Song 1", song.path("title").asText());
+            assertEquals("AAB", song.path("form").asText());
+            assertEquals(4, song.path("beatsPerBar").asInt());
+            assertEquals("CM7", song.path("ending").asText());
+            assertEquals(3, song.path("sections").size());
+            assertEquals("A", song.path("sections").get(0).path("name").asText());
+            assertEquals(List.of("Em7", "A7", "Dm7", "G7"),
+                    java.util.stream.StreamSupport.stream(song.path("sections").get(0).path("bars").spliterator(), false)
+                            .map(JsonNode::asText).toList());
+            assertEquals(2, song.path("sections").get(2).path("bars").size());
+
+            // Each part of the tune is announced with everything needed to draw where the band is.
+            List<JsonNode> segments = client.ofType("segment");
+            assertEquals(List.of("Intro", "The head", "piano solo", "bass solo", "The ending"),
+                    segments.stream().map(m -> m.path("label").asText()).toList());
+            JsonNode head = segments.get(1);
+            assertEquals("HEAD", head.path("kind").asText());
+            assertEquals("PIANO", head.path("leader").asText());
+            assertEquals(960, head.path("tempoBpm").asInt());
+            assertEquals(10 * 250, head.path("endMs").asLong() - head.path("startMs").asLong(), "ten bars of 250 ms");
+            assertEquals(segments.get(0).path("endMs").asLong(), head.path("startMs").asLong());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void rejectsAnUnknownSong() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"song\":\"stairway\"}", true).join();
+            waitFor(() -> !client.ofType("error").isEmpty(), 5_000);
+            assertEquals(List.of("start: song must be 'blues' or 'song1'"), errors(client));
+            assertTrue(client.ofType("song").isEmpty());
         } finally {
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
         }
@@ -246,10 +341,10 @@ class PerformanceServerTest {
             assertEquals(List.of(), errors(client));
 
             // The head was arranged at 480 bpm (6 s), the parts after the command at 960 bpm (3 s).
-            List<JsonNode> sections = client.ofType("status").stream().filter(m -> "SECTION".equals(m.path("kind").asText())).toList();
-            long head = sections.get(0).path("atMs").asLong();
-            long pianoSolo = sections.get(1).path("atMs").asLong();
-            long bassSolo = sections.get(2).path("atMs").asLong();
+            List<JsonNode> sections = parts(client);
+            long head = sections.get(0).path("startMs").asLong();
+            long pianoSolo = sections.get(1).path("startMs").asLong();
+            long bassSolo = sections.get(2).path("startMs").asLong();
             assertEquals(6_000, pianoSolo - head);
             assertEquals(3_000, bassSolo - pianoSolo);
 

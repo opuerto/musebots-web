@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Piano">
+  <!-- case and lid -->
+  <rect x="12" y="52" width="176" height="108" rx="10" fill="#1d2330"/>
+  <path d="M12 62 L12 52 C12 46 17 42 23 42 L177 42 C183 42 188 46 188 52 L188 62 Z" fill="#2c3547"/>
+  <rect x="20" y="64" width="160" height="10" rx="3" fill="#2c3547"/>
+  <!-- white keys -->
+  <g fill="#fbfbf8" stroke="#aeb4c0" stroke-width="1.5">
+    <rect x="20" y="82" width="20" height="70" rx="3"/><rect x="40" y="82" width="20" height="70" rx="3"/>
+    <rect x="60" y="82" width="20" height="70" rx="3"/><rect x="80" y="82" width="20" height="70" rx="3"/>
+    <rect x="100" y="82" width="20" height="70" rx="3"/><rect x="120" y="82" width="20" height="70" rx="3"/>
+    <rect x="140" y="82" width="20" height="70" rx="3"/><rect x="160" y="82" width="20" height="70" rx="3"/>
+  </g>
+  <!-- black keys -->
+  <g fill="#0e1117">
+    <rect x="34" y="82" width="13" height="42" rx="2.5"/><rect x="54" y="82" width="13" height="42" rx="2.5"/>
+    <rect x="94" y="82" width="13" height="42" rx="2.5"/><rect x="114" y="82" width="13" height="42" rx="2.5"/>
+    <rect x="134" y="82" width="13" height="42" rx="2.5"/><rect x="174" y="82" width="0" height="0"/>
+  </g>
+  <!-- legs -->
+  <rect x="22" y="158" width="12" height="28" rx="3" fill="#1d2330"/><rect x="166" y="158" width="12" height="28" rx="3" fill="#1d2330"/>
+</svg>

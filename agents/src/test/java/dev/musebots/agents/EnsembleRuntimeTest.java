@@ -9,6 +9,10 @@ import dev.musebots.core.EventSink;
 import dev.musebots.core.Instrument;
 import dev.musebots.core.NoteEvent;
 import dev.musebots.core.PerformanceEvent;
+import dev.musebots.core.PhraseKind;
+import dev.musebots.core.Segment;
+import dev.musebots.core.SegmentEvent;
+import dev.musebots.core.SongStructure;
 import dev.musebots.core.Songs;
 import dev.musebots.core.StatusEvent;
 import java.io.IOException;
@@ -75,19 +79,28 @@ class EnsembleRuntimeTest {
                     .filter(n -> n.instrument() == instrument).toList();
         }
 
-        List<StatusEvent> statuses(StatusEvent.Kind kind) {
-            return events.stream().filter(StatusEvent.class::isInstance).map(StatusEvent.class::cast)
-                    .filter(s -> s.kind() == kind).toList();
+        List<SegmentEvent> segments() {
+            return events.stream().filter(SegmentEvent.class::isInstance).map(SegmentEvent.class::cast).toList();
         }
 
-        /** The start time of the section with this label. */
+        /** The segment announced with this label. */
+        Segment segment(String label) {
+            return segments().stream().filter(s -> s.label().equals(label)).findFirst()
+                    .orElseThrow(() -> new AssertionError("no segment '" + label + "' in " + sectionLabels())).segment();
+        }
+
+        /** The start time of the part with this label. */
         long sectionStart(String label) {
-            return statuses(StatusEvent.Kind.SECTION).stream().filter(s -> s.message().equals(label))
-                    .findFirst().orElseThrow(() -> new AssertionError("no section '" + label + "'")).atMs();
+            return segment(label).startMs();
         }
 
+        long introStart() {
+            return sectionStart("Intro");
+        }
+
+        /** The parts after the intro, in the order they were announced. */
         List<String> sectionLabels() {
-            return statuses(StatusEvent.Kind.SECTION).stream().map(StatusEvent::message).toList();
+            return segments().stream().map(SegmentEvent::label).filter(label -> !label.equals("Intro")).toList();
         }
 
         StatusEvent lastStatus() {
@@ -142,7 +155,7 @@ class EnsembleRuntimeTest {
 
         // Intro, head, one solo each, ending: each part starts exactly when the previous one ends.
         assertEquals(List.of("The head", "piano solo", "bass solo", "The ending"), recorder.sectionLabels());
-        long introStart = recorder.statuses(StatusEvent.Kind.STARTED).get(0).atMs();
+        long introStart = recorder.introStart();
         long head = recorder.sectionStart("The head");
         long pianoSolo = recorder.sectionStart("piano solo");
         long bassSolo = recorder.sectionStart("bass solo");
@@ -171,6 +184,48 @@ class EnsembleRuntimeTest {
     }
 
     @Test
+    void aTenBarTuneInAABFormPlaysThroughToo() throws InterruptedException {
+        SongStructure tune = Songs.song1(FAST_TEMPO);
+        long chorus = 10 * BAR_MS;
+        SessionConfig session = new SessionConfig("aab", tune, 1, Instrument.PIANO, List.of(Instrument.BASS),
+                List.of(Instrument.PIANO, Instrument.BASS), 300, 500, 400, 42, Clock.systemUTC());
+        Recorder recorder = perform(session);
+        recorder.assertFinished();
+
+        // Every part is a whole number of choruses of the ten-bar form, back to back.
+        assertEquals(List.of("The head", "piano solo", "bass solo", "The ending"), recorder.sectionLabels());
+        long head = recorder.sectionStart("The head");
+        assertEquals(head + chorus, recorder.sectionStart("piano solo"));
+        assertEquals(head + 2 * chorus, recorder.sectionStart("bass solo"));
+        assertEquals(head + 3 * chorus, recorder.sectionStart("The ending"));
+
+        // The ending is the home chord (C), not the first chord of the tune (E minor).
+        long ending = recorder.sectionStart("The ending");
+        assertEquals(0, recorder.notes(Instrument.BASS, ending, ending + BAR_MS).get(0).midi() % 12);
+        // The bass backs the head with four notes a bar for ten bars.
+        assertEquals(40, recorder.notes(Instrument.BASS, head, head + chorus).size());
+    }
+
+    @Test
+    void everyPartIsAnnouncedWithWhoLeadsItWhenItRunsAndAtWhatTempo() throws InterruptedException {
+        Recorder recorder = perform(session("segments", Instrument.PIANO, List.of(Instrument.BASS)));
+        recorder.assertFinished();
+
+        Segment intro = recorder.segment("Intro");
+        assertEquals(PhraseKind.INTRO, intro.kind());
+        assertEquals(Instrument.BASS, intro.leader(), "the intro is attributed to the musician who won it");
+        assertEquals(4 * BAR_MS, intro.durationMs());
+        assertEquals(FAST_TEMPO, intro.tempoBpm());
+
+        assertEquals(Instrument.PIANO, recorder.segment("The head").leader());
+        assertEquals(Instrument.BASS, recorder.segment("bass solo").leader());
+        assertEquals(PhraseKind.SOLO, recorder.segment("bass solo").kind());
+        // They follow one another without gaps.
+        assertEquals(intro.endMs(), recorder.sectionStart("The head"));
+        assertEquals(recorder.segment("The head").endMs(), recorder.sectionStart("piano solo"));
+    }
+
+    @Test
     void theQuartetTradesSolosAndLaysOutWhenEtiquetteSaysSo() throws InterruptedException {
         Recorder recorder = perform(session("quartet", Instrument.SAX,
                 List.of(Instrument.PIANO, Instrument.BASS, Instrument.DRUMS)));
@@ -178,7 +233,7 @@ class EnsembleRuntimeTest {
 
         assertEquals(List.of("The head", "sax solo", "piano solo", "bass solo", "drums solo", "The ending"),
                 recorder.sectionLabels());
-        long introStart = recorder.statuses(StatusEvent.Kind.STARTED).get(0).atMs();
+        long introStart = recorder.introStart();
         long head = recorder.sectionStart("The head");
         long saxSolo = recorder.sectionStart("sax solo");
         long pianoSolo = recorder.sectionStart("piano solo");

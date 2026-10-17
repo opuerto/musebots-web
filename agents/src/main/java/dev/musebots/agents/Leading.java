@@ -3,6 +3,7 @@ package dev.musebots.agents;
 import dev.musebots.core.Instrument;
 import dev.musebots.core.PhraseKind;
 import dev.musebots.core.Segment;
+import dev.musebots.core.SegmentEvent;
 import dev.musebots.core.SongStructure;
 import dev.musebots.core.StatusEvent;
 import jade.core.AID;
@@ -131,8 +132,9 @@ final class Leading {
     }
 
     // Step 4: the intro is arranged; the head follows it.
-    private void introArranged(long startMs, long durationMs) {
-        agent.emit(new StatusEvent(StatusEvent.Kind.STARTED, "the intro begins", startMs));
+    private void introArranged(Instrument player, long startMs, long durationMs) {
+        Segment intro = new Segment("INTRO", PhraseKind.INTRO, player, startMs, startMs + durationMs, agent.tempoBpm());
+        agent.emit(new SegmentEvent(intro, label(intro)));
         SongStructure song = config.song();
         long headStart = startMs + durationMs;
         Segment head = new Segment("HEAD", PhraseKind.HEAD, config.instrument(), headStart,
@@ -153,7 +155,7 @@ final class Leading {
      * @param record whether this musician is the one who decided the segment (and so puts it on its timeline)
      */
     private void lead(Segment segment, PhraseKind myPart, List<Instrument> soloists, boolean record) {
-        agent.emit(new StatusEvent(StatusEvent.Kind.SECTION, label(segment), segment.startMs()));
+        agent.emit(new SegmentEvent(segment, label(segment)));
         if (record) {
             agent.record(segment);
         }
@@ -210,6 +212,7 @@ final class Leading {
 
     private static String label(Segment segment) {
         return switch (segment.kind()) {
+            case INTRO -> "Intro";
             case HEAD -> "The head";
             case SOLO -> segment.leader().name().toLowerCase() + " solo";
             case ENDING -> "The ending";
@@ -226,6 +229,7 @@ final class Leading {
 
         private final int attempt;
         private boolean introScheduled;
+        private Instrument introPlayer;
 
         IntroNegotiation(ACLMessage cfp, int attempt) {
             super(agent, cfp);
@@ -250,6 +254,7 @@ final class Leading {
             if (best == null) {
                 return; // no acceptances: the protocol ends and onEnd() retries
             }
+            introPlayer = bestProposal.instrument();
 
             long startMs = now() + config.leadInMs();
             for (Object response : responses) {
@@ -274,7 +279,7 @@ final class Leading {
         protected void handleInform(ACLMessage inform) {
             introScheduled = true;
             Protocol.IntroPerformed performed = Json.read(inform.getContent(), Protocol.IntroPerformed.class);
-            introArranged(performed.startMs(), performed.durationMs());
+            introArranged(introPlayer, performed.startMs(), performed.durationMs());
         }
 
         /** Runs when the protocol has ended, whether or not anyone delivered an intro. */

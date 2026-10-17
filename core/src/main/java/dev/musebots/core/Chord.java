@@ -5,6 +5,7 @@ import java.util.Map;
 /** A chord: a root pitch class (0 = C ... 11 = B) and a quality. */
 public record Chord(int root, Quality quality) {
 
+    private static final String[] NOTE_NAMES = {"C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"};
     private static final Map<Character, Integer> LETTERS =
             Map.of('C', 0, 'D', 2, 'E', 4, 'F', 5, 'G', 7, 'A', 9, 'B', 11);
 
@@ -43,6 +44,16 @@ public record Chord(int root, Quality quality) {
             pitchClasses[i] = pitchClass(steps[i]);
         }
         return pitchClasses;
+    }
+
+    /** The chord as a lead sheet writes it: "F7", "Bb7", "Gm7", "CM7". Parses back to the same chord. */
+    public String symbol() {
+        String suffix = switch (quality) {
+            case DOM7 -> "7";
+            case MIN7 -> "m7";
+            case MAJ7 -> "M7";
+        };
+        return NOTE_NAMES[root] + suffix;
     }
 
     /** Parses symbols such as "F7", "Bb7", "Gm7", "Cmaj7". */

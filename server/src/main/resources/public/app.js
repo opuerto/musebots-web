@@ -1,10 +1,21 @@
-// Browser client: keeps a clock offset to the server, then schedules each note on the Web Audio clock.
+// Browser client: keeps a clock offset to the server, plays each note on the Web Audio clock, and shows where the band
+// is in the tune.
 
+import { buildChart } from './chart.js';
 import { buildInstruments } from './instruments.js';
+import { caption, leaderLabel } from './narrator.js';
+import { ORDER, readout } from './notes.js';
+import { buildStage } from './stage.js';
+import { locate, positionTitle, roleOf, whereText } from './timeline.js';
 
 const SYNC_ROUNDS = 8;
+const RENDER_MS = 50;
+const KEEP_PLAYED_MS = 2_000; // how long to remember a note after it has finished, for the display
+const MIN_VISIBLE_MS = 150; // a drum hit lasts a few dozen milliseconds: keep it on screen long enough to be seen
+const ENSEMBLES = { quartet: ['SAX', 'PIANO', 'BASS', 'DRUMS'], duo: ['PIANO', 'BASS'] };
 
 const els = {
+  song: document.getElementById('song'),
   tempo: document.getElementById('tempo'),
   tempoOut: document.getElementById('tempoOut'),
   soloChoruses: document.getElementById('soloChoruses'),
@@ -12,29 +23,56 @@ const els = {
   start: document.getElementById('start'),
   stop: document.getElementById('stop'),
   status: document.getElementById('status'),
+  stage: document.getElementById('stage'),
+  songTitle: document.getElementById('songTitle'),
+  chartPosition: document.getElementById('chartPosition'),
+  chart: document.getElementById('chart'),
+  caption: document.getElementById('caption'),
+  where: document.getElementById('where'),
   conversation: document.getElementById('conversation'),
-  conductor: document.getElementById('conductor'),
-  mixer: document.getElementById('mixer'),
 };
 
 let socket;
 let clockOffsetMs = 0; // serverTime - clientTime, from the lowest-latency sync round
 let bestRtt = Infinity;
 let instruments = null;
-let timers = []; // pending "now playing" label changes
-let performing = false; // whether this browser has a performance running
+let performing = false;
+let renderTimer = null;
 
-const ENSEMBLES = { quartet: ['SAX', 'PIANO', 'BASS', 'DRUMS'], duo: ['PIANO', 'BASS'] };
+let catalogue = {}; // the tunes the server offers, by id
+let song = null; // the tune being played (or previewed)
+let chart = null;
+let segments = []; // the parts of the tune announced so far
+let played = freshPlayed(); // notes that have been scheduled, per instrument, for the display
 
 const serverNow = () => Date.now() + clockOffsetMs;
 const setStatus = (text) => { els.status.textContent = text; };
+const conduct = (command, fields = {}) => socket.send(JSON.stringify({ type: 'conduct', command, ...fields }));
+
+function freshPlayed() {
+  return Object.fromEntries(ORDER.map((instrument) => [instrument, []]));
+}
+
+const stage = buildStage(els.stage, {
+  onMute: (instrument, muted) => conduct(muted ? 'mute' : 'unmute', { instrument }),
+  onVolume: (instrument, gain) => conduct('volume', { instrument, value: gain }),
+});
+stage.setBand(ENSEMBLES.quartet);
+stage.setPerforming(false);
+
+// ---- connection ----
 
 function connect() {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   socket = new WebSocket(`${scheme}://${location.host}/ws`);
   socket.onopen = syncClock;
   socket.onmessage = (event) => handle(JSON.parse(event.data));
-  socket.onclose = () => { setStatus('Disconnected. Reload to reconnect.'); els.start.disabled = true; els.stop.disabled = true; };
+  socket.onclose = () => {
+    setStatus('Disconnected. Reload to reconnect.');
+    els.start.disabled = true;
+    els.stop.disabled = true;
+    stopRendering();
+  };
 }
 
 function syncClock() {
@@ -48,37 +86,114 @@ function syncClock() {
 
 function handle(message) {
   switch (message.type) {
+    case 'hello':
+      catalogue = Object.fromEntries((message.songs ?? []).map((tune) => [tune.id, tune]));
+      preview();
+      break;
     case 'time.sync': {
       const t1 = Date.now();
       const rtt = t1 - message.t0;
       if (rtt < bestRtt) {
         bestRtt = rtt;
         clockOffsetMs = message.serverMs + rtt / 2 - t1;
-        els.start.disabled = false;
-        setStatus(`Ready (round trip ${rtt} ms).`);
+        if (!performing) els.start.disabled = false;
+        if (!performing) setStatus(`Ready (round trip ${rtt} ms).`);
       }
       break;
     }
-    case 'note': schedule(message); break;
+    case 'song': showSong(message); break;
+    case 'segment': segments = [...segments, message].sort((a, b) => a.startMs - b.startMs); break;
+    case 'note': if (schedule(message)) remember(message); break;
     case 'conversation': log(message); break;
     case 'status': onStatus(message); break;
     case 'error':
       setStatus(`Error: ${message.message}`);
       if (message.source === 'start') { // the performance never began
-        els.start.disabled = false;
-        els.stop.disabled = true;
-        setPerforming(false);
+        endPerformance();
       }
       break;
   }
 }
 
+// ---- sound ----
+
 function schedule(note) {
   const instrument = instruments?.[note.instrument];
-  if (!instrument) return;
+  if (!instrument) return false;
   const delaySeconds = (note.startMs - serverNow()) / 1000;
-  if (delaySeconds < -0.05) return; // arrived too late to play in time
+  if (delaySeconds < -0.05) return false; // arrived too late to play in time
   instrument.play(note, Tone.now() + Math.max(0, delaySeconds));
+  return true;
+}
+
+/** Keeps the note for the display, which shows what is sounding now. */
+function remember(note) {
+  played[note.instrument]?.push({
+    start: note.startMs, end: note.startMs + Math.max(note.durationMs, MIN_VISIBLE_MS), midi: note.midi, velocity: note.velocity,
+  });
+}
+
+// ---- display ----
+
+function showSong(tune) {
+  song = tune;
+  els.songTitle.textContent = tune.title;
+  chart = buildChart(els.chart, tune);
+  chart.update(null);
+}
+
+/** Before the band starts, show the chart of the chosen tune. */
+function preview() {
+  if (!performing && catalogue[els.song.value]) showSong(catalogue[els.song.value]);
+}
+
+function render() {
+  const now = serverNow();
+  const located = song ? locate(segments, song, now) : null;
+  const previous = located ? segments[segments.indexOf(located.segment) - 1] : undefined;
+
+  chart?.update(located);
+  els.chartPosition.textContent = song ? positionTitle(located, song, leaderLabel(located)) : '';
+  els.caption.textContent = located ? caption(located, previous) : (segments.length ? 'The band is counting in…' : 'The musicians are getting ready…');
+  els.where.textContent = song ? whereText(located, song) : '';
+  if (located) setStatus(located.label.charAt(0).toUpperCase() + located.label.slice(1));
+
+  const states = {};
+  for (const instrument of ORDER) {
+    const notes = played[instrument];
+    while (notes.length && notes[0].end < now - KEEP_PLAYED_MS) notes.shift();
+    const sounding = notes.filter((note) => note.start <= now && now < note.end);
+    states[instrument] = {
+      role: roleOf(instrument, located),
+      notes: readout(instrument, sounding.map((note) => note.midi)),
+      level: sounding.length ? Math.max(...sounding.map((note) => note.velocity)) / 127 : 0,
+    };
+  }
+  stage.update(states);
+}
+
+function startRendering() {
+  stopRendering();
+  renderTimer = setInterval(render, RENDER_MS);
+}
+
+function stopRendering() {
+  if (renderTimer !== null) clearInterval(renderTimer);
+  renderTimer = null;
+}
+
+/** Whatever ended the performance, put the page back so another can start. */
+function endPerformance() {
+  performing = false;
+  stopRendering();
+  els.start.disabled = false;
+  els.stop.disabled = true;
+  stage.setPerforming(false);
+  stage.update({});
+  chart?.update(null);
+  els.chartPosition.textContent = '';
+  els.caption.textContent = '';
+  els.where.textContent = '';
 }
 
 function log(message) {
@@ -86,9 +201,13 @@ function log(message) {
   li.dataset.performative = message.performative;
   li.dataset.part = partOf(message.from);
   const left = document.createElement('div');
-  left.innerHTML = `<div class="who"></div><div class="performative"></div>`;
-  left.querySelector('.who').textContent = `${shortName(message.from)} → ${message.to.map(shortName).join(', ')}`;
-  left.querySelector('.performative').textContent = message.performative;
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = `${shortName(message.from)} → ${message.to.map(shortName).join(', ')}`;
+  const performative = document.createElement('div');
+  performative.className = 'performative';
+  performative.textContent = message.performative;
+  left.append(who, performative);
   const right = document.createElement('div');
   right.textContent = message.summary;
   li.append(left, right);
@@ -102,78 +221,51 @@ const shortName = (name) => {
   return !part || part === 'musician' ? instrument : `${instrument} ${part}`;
 };
 
-// ---- Conductor: tempo, volume and mute, sent to the Ensemble Assistants ----
-
-const conduct = (command, fields = {}) => socket.send(JSON.stringify({ type: 'conduct', command, ...fields }));
-
-function buildMixer(instruments) {
-  els.mixer.replaceChildren(...instruments.map((instrument) => {
-    const row = document.createElement('div');
-    row.className = 'channel';
-    row.innerHTML = `<strong></strong><input type="range" min="0" max="150" value="100" aria-label="volume"><output>100%</output>
-      <label><input type="checkbox"> mute</label>`;
-    row.querySelector('strong').textContent = instrument.toLowerCase();
-    const slider = row.querySelector('input[type=range]');
-    const output = row.querySelector('output');
-    slider.addEventListener('input', () => { output.textContent = `${slider.value}%`; });
-    slider.addEventListener('change', () => conduct('volume', { instrument, value: Number(slider.value) / 100 }));
-    row.querySelector('input[type=checkbox]').addEventListener('change', (event) =>
-      conduct(event.target.checked ? 'mute' : 'unmute', { instrument }));
-    return row;
-  }));
-}
-
-function setPerforming(value) {
-  performing = value;
-  els.conductor.hidden = !value;
-}
-
-// The server announces a part of the tune when it arranges it, a little before it is heard: show it on time.
-function showAt(startMs, text) {
-  timers.push(setTimeout(() => setStatus(text), Math.max(0, startMs - serverNow())));
-}
-
-function clearTimers() {
-  timers.forEach(clearTimeout);
-  timers = [];
-}
-
 function onStatus(message) {
   switch (message.kind) {
     case 'ENSEMBLE_READY': setStatus('The ensemble is assembled…'); break;
-    case 'STARTED': showAt(message.atMs, 'Intro'); break;
-    case 'SECTION': showAt(message.atMs, message.message); break;
-    case 'FINISHED': setStatus('Finished.'); els.start.disabled = false; els.stop.disabled = true; setPerforming(false); break;
-    case 'FAILED': clearTimers(); setStatus(`Failed: ${message.message}`); els.start.disabled = false; els.stop.disabled = true; setPerforming(false); break;
+    case 'FINISHED': endPerformance(); setStatus('Finished.'); break;
+    case 'FAILED': endPerformance(); setStatus(`Failed: ${message.message}`); break;
   }
 }
+
+// ---- controls ----
 
 els.tempo.addEventListener('input', () => { els.tempoOut.textContent = els.tempo.value; });
 // Before the start this chooses the tempo; during a performance it is the Conductor changing it.
 els.tempo.addEventListener('change', () => { if (performing) conduct('tempo', { value: Number(els.tempo.value) }); });
+els.song.addEventListener('change', preview);
+els.ensemble.addEventListener('change', () => { if (!performing) stage.setBand(ENSEMBLES[els.ensemble.value]); });
 
 els.start.addEventListener('click', async () => {
   await Tone.start(); // browsers only allow audio after a user gesture
   instruments ??= buildInstruments(Tone);
-  clearTimers();
   els.conversation.replaceChildren();
+  segments = [];
+  played = freshPlayed();
+  performing = true;
   els.start.disabled = true;
   els.stop.disabled = false;
-  buildMixer(ENSEMBLES[els.ensemble.value]);
-  setPerforming(true);
+  stage.reset();
+  stage.setBand(ENSEMBLES[els.ensemble.value]);
+  stage.setPerforming(true);
   setStatus('Asking the musicians to gather…');
-  socket.send(JSON.stringify({ type: 'start', tempo: Number(els.tempo.value), soloChoruses: Number(els.soloChoruses.value), ensemble: els.ensemble.value }));
+  startRendering();
+  socket.send(JSON.stringify({
+    type: 'start',
+    song: els.song.value,
+    tempo: Number(els.tempo.value),
+    soloChoruses: Number(els.soloChoruses.value),
+    ensemble: els.ensemble.value,
+  }));
 });
 
 els.stop.addEventListener('click', () => {
-  clearTimers();
   socket.send(JSON.stringify({ type: 'stop' }));
   // Notes are scheduled ahead on the audio clock; disposing the synths silences whatever is still queued.
   Object.values(instruments ?? {}).forEach((i) => i.dispose());
   instruments = null;
-  els.start.disabled = false;
-  els.stop.disabled = true;
-  setPerforming(false);
+  endPerformance();
   setStatus('Stopped.');
 });
 

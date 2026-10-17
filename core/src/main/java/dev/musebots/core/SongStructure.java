@@ -2,8 +2,11 @@ package dev.musebots.core;
 
 import java.util.List;
 
-/** The shared description of a song that the leader hands to the rest of the ensemble. */
-public record SongStructure(String title, int tempoBpm, int beatsPerBar, List<Section> sections) {
+/**
+ * The shared description of a song that the leader hands to the rest of the ensemble. {@code ending} is the bar
+ * the tune finishes on, usually the tonic.
+ */
+public record SongStructure(String title, int tempoBpm, int beatsPerBar, List<Section> sections, ChordBar ending) {
 
     public SongStructure {
         sections = List.copyOf(sections);
@@ -26,9 +29,14 @@ public record SongStructure(String title, int tempoBpm, int beatsPerBar, List<Se
         return form.subList(Math.max(0, form.size() - bars), form.size());
     }
 
-    /** The home chord, for the final bar. */
+    /** The final bar: the chord the tune ends on. */
     public List<ChordBar> home() {
-        return List.of(allBars().get(0));
+        return List.of(ending);
+    }
+
+    /** The shape of the tune as letters, e.g. "AAB". */
+    public String form() {
+        return sections.stream().map(Section::name).collect(java.util.stream.Collectors.joining());
     }
 
     /** The chords to write over {@code bars} bars of a phrase of the given kind. */

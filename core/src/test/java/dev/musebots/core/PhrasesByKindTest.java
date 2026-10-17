@@ -24,6 +24,20 @@ class PhrasesByKindTest {
     }
 
     @Test
+    void everyInstrumentWritesEveryKindOverTheAABTuneToo() {
+        SongStructure tune = Songs.song1(120);
+        for (Instrument instrument : Instrument.values()) {
+            for (PhraseKind kind : PhraseKind.values()) {
+                int bars = kind == PhraseKind.INTRO ? 4 : kind == PhraseKind.ENDING ? 1 : 10;
+                PhraseRequest request = new PhraseRequest(kind, tune.barsFor(kind, bars), tune.clock(), 1_000);
+                for (NoteEvent note : composer(instrument, 6).compose(request)) {
+                    assertTrue(note.startMs() >= request.startMs() && note.endMs() <= request.endMs(), instrument + " " + kind + " " + note);
+                }
+            }
+        }
+    }
+
+    @Test
     void everyInstrumentWritesEveryKindInsideThePhraseWindow() {
         for (Instrument instrument : Instrument.values()) {
             for (PhraseKind kind : PhraseKind.values()) {

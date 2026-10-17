@@ -57,7 +57,7 @@ public final class DrumComposer implements PhraseComposer {
 
         for (int bar = 0; bar < request.bars().size(); bar++) {
             double start = (double) bar * beatsPerBar;
-            if (bar % 12 == 0) {
+            if (bar == 0) { // a crash to start the solo
                 hit(notes, request, CRASH, start, 2.0, 92);
             }
             hit(notes, request, RIDE, start, 0.5, 76);

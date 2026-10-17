@@ -4,37 +4,58 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Musebots</title>
+  <link rel="icon" href="assets/sax.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
-    <h1>Musebots</h1>
-    <p class="lead">A jazz quartet of autonomous agents (sax, piano, bass and drums) negotiates who plays the intro, plays a 12-bar blues together, then trades solos, passing the lead from one musician to the next. Each musician is really three agents: a musician, a composer and a synchronizer.</p>
+    <header class="hero">
+      <h1>Musebots</h1>
+      <p class="lead">A jazz band of autonomous agents. They agree who plays the intro, play the tune together, and trade solos,
+        handing the lead from one musician to the next. Each musician is really four agents: a musician, a composer, a
+        synchronizer and an ensemble assistant.</p>
+    </header>
 
     <section class="controls">
-      <label>Tempo <input id="tempo" type="range" min="60" max="200" value="120"> <output id="tempoOut">120</output> bpm</label>
-      <label>Ensemble
+      <label>Song
+        <select id="song">
+          <option value="blues" selected>Blues in F · 12 bars</option>
+          <option value="song1">Song 1 · AAB, 10 bars</option>
+        </select>
+      </label>
+      <label>Band
         <select id="ensemble">
           <option value="quartet" selected>Quartet</option>
           <option value="duo">Duo (piano and bass)</option>
         </select>
       </label>
+      <label>Tempo <input id="tempo" type="range" min="60" max="200" value="120"> <output id="tempoOut">120</output> bpm</label>
       <label>Solo choruses <input id="soloChoruses" type="number" min="1" max="2" value="1"></label>
-      <button id="start" disabled>Start</button>
-      <button id="stop" disabled>Stop</button>
+      <div class="buttons">
+        <button id="start" class="primary" disabled>Start</button>
+        <button id="stop" disabled>Stop</button>
+      </div>
     </section>
 
     <p id="status" class="status now">Connecting…</p>
 
-    <section id="conductor" class="conductor" hidden>
-      <h2>Conductor</h2>
-      <p class="hint">Each musician has an Ensemble Assistant that relays what you ask to its musician and composer.
-        A new tempo applies from the next part of the tune; volume and mute are heard within about a bar.</p>
-      <div id="mixer" class="mixer"></div>
+    <section id="stage" class="stage" aria-label="The band"></section>
+
+    <section class="chart-panel" aria-label="The chord chart">
+      <div class="chart-head">
+        <h2 id="songTitle">Song</h2>
+        <span id="chartPosition" class="position"></span>
+      </div>
+      <div id="chart" class="chart"></div>
+      <p id="caption" class="caption"></p>
+      <p id="where" class="where"></p>
     </section>
 
-    <h2>What the musicians say to each other</h2>
-    <ol id="conversation" class="conversation"></ol>
+    <details class="log">
+      <summary>What the musicians say to each other</summary>
+      <p class="hint">Tempo changes apply from the next part of the tune. Volume and mute are heard within about a bar.</p>
+      <ol id="conversation" class="conversation"></ol>
+    </details>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>

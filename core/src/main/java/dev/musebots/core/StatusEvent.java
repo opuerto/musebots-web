@@ -5,9 +5,6 @@ public record StatusEvent(Kind kind, String message, long atMs) implements Perfo
 
     public enum Kind {
         ENSEMBLE_READY,
-        STARTED,
-        /** A new part of the tune begins at {@code atMs} (head, a solo, the ending). */
-        SECTION,
         FINISHED,
         FAILED
     }

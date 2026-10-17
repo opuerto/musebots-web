@@ -21,8 +21,9 @@ class SongStructureTest {
     }
 
     @Test
-    void theHomeChordIsTheFirstBar() {
-        assertEquals(java.util.List.of(ChordBar.of("F7")), blues.home());
+    void theFormIsTheSectionLetters() {
+        assertEquals("ABC", blues.form());
+        assertEquals("AAB", Songs.song1(120).form());
     }
 
     @Test

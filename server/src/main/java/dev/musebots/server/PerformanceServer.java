@@ -7,6 +7,7 @@ import dev.musebots.agents.Protocol;
 import dev.musebots.agents.SessionConfig;
 import dev.musebots.core.EventSink;
 import dev.musebots.core.Instrument;
+import dev.musebots.core.SongStructure;
 import dev.musebots.core.Songs;
 import dev.musebots.core.StatusEvent;
 import io.javalin.Javalin;
@@ -23,7 +24,7 @@ import java.util.concurrent.Executors;
  * Serves the web client and runs one performance per browser connection.
  *
  * <p>Protocol (JSON over WebSocket at {@code /ws}). Client to server: {@code time.sync}, {@code start}
- * (tempo, soloChoruses, ensemble = quartet or duo), {@code stop}, and {@code conduct}
+ * (tempo, soloChoruses, ensemble = quartet or duo, song = blues or song1), {@code stop}, and {@code conduct}
  * (command = tempo, volume, mute or unmute; instrument; value). Server to client: see {@link Wire}.
  */
 public final class PerformanceServer implements AutoCloseable {
@@ -88,6 +89,12 @@ public final class PerformanceServer implements AutoCloseable {
                     + " and soloChoruses 1-" + limits.maxSoloChoruses()));
             return;
         }
+        String songId = message.path("song").asText(Songs.BLUES);
+        SongStructure song = Songs.byId(songId, tempo);
+        if (song == null) {
+            ctx.send(Wire.error("start", "song must be '" + Songs.BLUES + "' or '" + Songs.SONG_1 + "'"));
+            return;
+        }
         String ensemble = message.path("ensemble").asText("quartet");
         if (!ensemble.equals("quartet") && !ensemble.equals("duo")) {
             ctx.send(Wire.error("start", "ensemble must be 'quartet' or 'duo'"));
@@ -108,8 +115,9 @@ public final class PerformanceServer implements AutoCloseable {
             }
         };
         SessionConfig session = ensemble.equals("duo")
-                ? SessionConfig.duo(sessionId, Songs.bluesInF(tempo), soloChoruses)
-                : SessionConfig.quartet(sessionId, Songs.bluesInF(tempo), soloChoruses);
+                ? SessionConfig.duo(sessionId, song, soloChoruses)
+                : SessionConfig.quartet(sessionId, song, soloChoruses);
+        toBrowser.send(Wire.song(songId, song)); // before the band starts, so the chart is ready for the first note
         running.put(ctx.sessionId(), runtime.perform(session, sink));
     }
 
