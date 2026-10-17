@@ -12,7 +12,8 @@ public final class Composers {
         return switch (instrument) {
             case BASS -> new WalkingBassComposer(random);
             case PIANO -> new PianoComposer(random);
-            default -> throw new IllegalArgumentException("No composer yet for " + instrument);
+            case DRUMS -> new DrumComposer(random);
+            case SAX -> new SaxComposer(random);
         };
     }
 }

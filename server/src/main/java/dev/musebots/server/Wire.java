@@ -33,6 +33,7 @@ final class Wire {
             node.set("to", MAPPER.valueToTree(talk.to()));
             node.put("performative", talk.performative());
             node.put("protocol", talk.protocol());
+            node.put("conversationId", talk.conversationId());
             node.put("summary", talk.summary());
             node.put("atMs", talk.atMs());
         } else if (event instanceof StatusEvent status) {

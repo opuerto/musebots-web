@@ -31,6 +31,20 @@ public record Chord(int root, Quality quality) {
         return pitchClass(quality.seventh());
     }
 
+    /** The pitch classes of the scale that fits this chord (with the blue note over dominant chords). */
+    public int[] scalePitchClasses() {
+        int[] steps = switch (quality) {
+            case DOM7 -> new int[] {0, 2, 3, 4, 5, 7, 9, 10};
+            case MIN7 -> new int[] {0, 2, 3, 5, 7, 9, 10};
+            case MAJ7 -> new int[] {0, 2, 4, 5, 7, 9, 11};
+        };
+        int[] pitchClasses = new int[steps.length];
+        for (int i = 0; i < steps.length; i++) {
+            pitchClasses[i] = pitchClass(steps[i]);
+        }
+        return pitchClasses;
+    }
+
     /** Parses symbols such as "F7", "Bb7", "Gm7", "Cmaj7". */
     public static Chord parse(String symbol) {
         if (symbol == null || symbol.isEmpty()) {

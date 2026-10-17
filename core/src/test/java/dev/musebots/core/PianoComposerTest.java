@@ -12,7 +12,7 @@ class PianoComposerTest {
 
     @Test
     void writesPianoNotesInsideThePhraseWindow() {
-        PhraseRequest request = new PhraseRequest(Songs.bluesInF(100).allBars(), new MusicClock(100, 4), 1_000);
+        PhraseRequest request = new PhraseRequest(PhraseKind.SUPPORT, Songs.bluesInF(100).allBars(), new MusicClock(100, 4), 1_000);
         List<NoteEvent> notes = new PianoComposer(new Random(5)).compose(request);
 
         assertFalse(notes.isEmpty());

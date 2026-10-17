@@ -4,3 +4,7 @@ build/
 *.iml
 .DS_Store
 out/
+
+# Written by JADE into the working directory whenever a platform starts
+APDescription.txt
+MTPs-*.txt

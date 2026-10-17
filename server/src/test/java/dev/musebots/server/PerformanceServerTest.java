@@ -29,7 +29,8 @@ class PerformanceServerTest {
 
     @BeforeAll
     void start() throws IOException {
-        server = PerformanceServer.start(0, freePort());
+        // Wide tempo range so whole performances (intro, head, solos, ending) take seconds, not minutes.
+        server = PerformanceServer.start(0, freePort(), new ServerLimits(60, 960, 2));
     }
 
     @AfterAll
@@ -89,29 +90,110 @@ class PerformanceServerTest {
         assertTrue(response.body().contains("Musebots"));
     }
 
+    private static String start(int tempo, String ensemble) {
+        return "{\"type\":\"start\",\"tempo\":" + tempo + ",\"soloChoruses\":1,\"ensemble\":\"" + ensemble + "\"}";
+    }
+
+    private static List<String> sections(Client client) {
+        return client.ofType("status").stream().filter(m -> "SECTION".equals(m.path("kind").asText()))
+                .map(m -> m.path("message").asText()).toList();
+    }
+
+    private static boolean played(Client client, String instrument) {
+        return client.ofType("note").stream().anyMatch(n -> instrument.equals(n.path("instrument").asText()));
+    }
+
     @Test
-    void streamsANegotiatedPerformanceToTheBrowser() throws Exception {
+    void streamsANegotiatedDuoToTheBrowser() throws Exception {
         Client client = new Client();
         WebSocket socket = connect(client);
         try {
             socket.sendText("{\"type\":\"time.sync\",\"t0\":123}", true).join();
-            socket.sendText("{\"type\":\"start\",\"tempo\":200,\"choruses\":1}", true).join();
+            socket.sendText(start(960, "duo"), true).join();
 
-            assertTrue(client.finished.await(30, TimeUnit.SECONDS), "performance did not finish");
+            assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
 
             assertEquals(1, client.ofType("hello").size());
-            JsonNode sync = client.ofType("time.sync").get(0);
-            assertEquals(123, sync.path("t0").asLong());
+            assertEquals(123, client.ofType("time.sync").get(0).path("t0").asLong());
+            assertEquals("FINISHED", client.ofType("status").stream().reduce((a, b) -> b).orElseThrow().path("kind").asText());
 
-            List<String> performatives = client.ofType("conversation").stream()
-                    .map(m -> m.path("performative").asText()).toList();
-            assertEquals(List.of("INFORM", "CONFIRM", "CFP", "PROPOSE", "ACCEPT-PROPOSAL", "INFORM", "REQUEST"), performatives);
+            // The browser is told when each part of the tune begins.
+            assertEquals(List.of("The head", "piano solo", "bass solo", "The ending"), sections(client));
 
-            List<JsonNode> notes = client.ofType("note");
-            assertTrue(notes.stream().anyMatch(n -> "BASS".equals(n.path("instrument").asText())));
-            assertTrue(notes.stream().anyMatch(n -> "PIANO".equals(n.path("instrument").asText())));
-            assertEquals("FINISHED", client.ofType("status").stream()
-                    .reduce((a, b) -> b).orElseThrow().path("kind").asText());
+            // It sees the negotiation, with the conversation each message belongs to.
+            List<JsonNode> talk = client.ofType("conversation");
+            assertTrue(talk.stream().anyMatch(m -> "CFP".equals(m.path("performative").asText())
+                    && "intro".equals(m.path("conversationId").asText())));
+            assertTrue(talk.stream().anyMatch(m -> "take-lead".equals(m.path("conversationId").asText())));
+            assertTrue(talk.stream().anyMatch(m -> m.path("from").asText().endsWith("-bass-synchronizer")));
+            assertTrue(talk.stream().anyMatch(m -> m.path("from").asText().endsWith("-piano-composer")));
+
+            assertTrue(played(client, "BASS"));
+            assertTrue(played(client, "PIANO"));
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void streamsTheFullQuartetByDefault() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"tempo\":960}", true).join();
+            assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
+
+            assertEquals("FINISHED", client.ofType("status").stream().reduce((a, b) -> b).orElseThrow().path("kind").asText());
+            assertEquals(List.of("The head", "sax solo", "piano solo", "bass solo", "drums solo", "The ending"), sections(client));
+            for (String instrument : List.of("SAX", "PIANO", "BASS", "DRUMS")) {
+                assertTrue(played(client, instrument), instrument + " never played");
+            }
+            assertEquals(3, client.ofType("conversation").stream()
+                    .filter(m -> "PROPOSE".equals(m.path("performative").asText())).count());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void stoppingEndsThePerformanceEarly() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText(start(120, "duo"), true).join();
+            long deadline = System.currentTimeMillis() + 10_000;
+            while (client.ofType("note").isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertFalse(client.ofType("note").isEmpty());
+
+            socket.sendText("{\"type\":\"stop\"}", true).join();
+            Thread.sleep(500);
+            int before = client.messages.size();
+            Thread.sleep(1_500);
+            // Nothing more arrives once the agents are gone (the performance would last for a minute at 120 bpm).
+            assertEquals(before, client.messages.size());
+            assertFalse(client.finished.getCount() == 0, "the performance carried on to the end");
+
+            // And a new performance can start on the same connection.
+            socket.sendText(start(960, "duo"), true).join();
+            assertTrue(client.finished.await(60, TimeUnit.SECONDS));
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void rejectsAnUnknownEnsemble() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"ensemble\":\"big-band\"}", true).join();
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (client.ofType("error").isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertFalse(client.ofType("error").isEmpty());
         } finally {
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
         }

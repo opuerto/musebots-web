@@ -16,4 +16,9 @@ public record MusicClock(int tempoBpm, int beatsPerBar) {
     public long barsToMillis(int bars) {
         return beatsToMillis((double) bars * beatsPerBar);
     }
+
+    /** The number of whole bars that fit {@code millis}, rounded to the nearest bar. */
+    public int millisToBars(long millis) {
+        return (int) Math.round((double) millis / barsToMillis(1));
+    }
 }

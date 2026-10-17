@@ -3,6 +3,7 @@ package dev.musebots.agents;
 import dev.musebots.core.ConversationEvent;
 import dev.musebots.core.EventSink;
 import dev.musebots.core.PerformanceEvent;
+import dev.musebots.core.StatusEvent;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.domain.DFService;
@@ -15,7 +16,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-/** Base class for agents that publish what they say and register as musicians of one session. */
+/** Base class for the agents of a Musebot: they publish what they say and can find their peers in the directory. */
 abstract class MusebotAgent extends Agent {
 
     private final String sessionId;
@@ -28,12 +29,20 @@ abstract class MusebotAgent extends Agent {
         this.clock = clock;
     }
 
+    String sessionId() {
+        return sessionId;
+    }
+
     Clock clock() {
         return clock;
     }
 
     void emit(PerformanceEvent event) {
         sink.emit(event);
+    }
+
+    void fail(String reason) {
+        emit(new StatusEvent(StatusEvent.Kind.FAILED, getLocalName() + ": " + reason, clock.millis()));
     }
 
     /** Sends a message and publishes it to observers. */
@@ -49,7 +58,7 @@ abstract class MusebotAgent extends Agent {
             receivers.add(((AID) it.next()).getLocalName());
         }
         emit(new ConversationEvent(getLocalName(), receivers, ACLMessage.getPerformative(message.getPerformative()),
-                message.getProtocol(), summary, clock.millis()));
+                message.getProtocol(), message.getConversationId(), summary, clock.millis()));
     }
 
     /** A new outgoing message with the shared language and ontology already set. */
@@ -62,11 +71,11 @@ abstract class MusebotAgent extends Agent {
         return message;
     }
 
-    void registerAsMusician(String instrument) {
+    void registerAs(String serviceType) {
         DFAgentDescription description = new DFAgentDescription();
         description.setName(getAID());
         ServiceDescription service = new ServiceDescription();
-        service.setType(Protocol.SERVICE_TYPE);
+        service.setType(serviceType);
         service.setName(sessionId);
         description.addServices(service);
         try {
@@ -76,11 +85,11 @@ abstract class MusebotAgent extends Agent {
         }
     }
 
-    /** The other musicians registered for this session. */
-    List<AID> findPeers() {
+    /** The other agents of this session registered with the given service type. */
+    List<AID> findPeers(String serviceType) {
         DFAgentDescription template = new DFAgentDescription();
         ServiceDescription service = new ServiceDescription();
-        service.setType(Protocol.SERVICE_TYPE);
+        service.setType(serviceType);
         service.setName(sessionId);
         template.addServices(service);
         List<AID> peers = new ArrayList<>();
@@ -101,7 +110,7 @@ abstract class MusebotAgent extends Agent {
         try {
             DFService.deregister(this);
         } catch (FIPAException e) {
-            // Platform is shutting down; nothing useful to do.
+            // Not registered (the composer is not), or the platform is shutting down.
         }
     }
 }

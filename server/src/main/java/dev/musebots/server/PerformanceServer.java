@@ -20,16 +20,13 @@ import java.util.concurrent.Executors;
 /**
  * Serves the web client and runs one performance per browser connection.
  *
- * <p>Protocol (JSON over WebSocket at {@code /ws}). Client to server: {@code time.sync}, {@code start},
- * {@code stop}. Server to client: see {@link Wire}.
+ * <p>Protocol (JSON over WebSocket at {@code /ws}). Client to server: {@code time.sync}, {@code start}
+ * (tempo, soloChoruses, ensemble = quartet or duo), {@code stop}. Server to client: see {@link Wire}.
  */
 public final class PerformanceServer implements AutoCloseable {
 
-    private static final int MIN_TEMPO = 60;
-    private static final int MAX_TEMPO = 200;
-    private static final int MAX_CHORUSES = 4;
-
     private final EnsembleRuntime runtime;
+    private final ServerLimits limits;
     private final Javalin app;
     private final Map<String, Performance> running = new ConcurrentHashMap<>();
     // Stopping kills agents; never do that on an agent's own thread.
@@ -39,8 +36,9 @@ public final class PerformanceServer implements AutoCloseable {
         return thread;
     });
 
-    private PerformanceServer(EnsembleRuntime runtime, int httpPort) {
+    private PerformanceServer(EnsembleRuntime runtime, ServerLimits limits, int httpPort) {
         this.runtime = runtime;
+        this.limits = limits;
         this.app = Javalin.create(config -> config.staticFiles.add("/public", Location.CLASSPATH));
         app.ws("/ws", ws -> {
             ws.onConnect(ctx -> {
@@ -55,7 +53,11 @@ public final class PerformanceServer implements AutoCloseable {
     }
 
     public static PerformanceServer start(int httpPort, int jadePort) {
-        return new PerformanceServer(EnsembleRuntime.start(jadePort), httpPort);
+        return start(httpPort, jadePort, ServerLimits.DEFAULT);
+    }
+
+    public static PerformanceServer start(int httpPort, int jadePort, ServerLimits limits) {
+        return new PerformanceServer(EnsembleRuntime.start(jadePort), limits, httpPort);
     }
 
     public int port() {
@@ -73,9 +75,15 @@ public final class PerformanceServer implements AutoCloseable {
 
     private void start(WsContext ctx, JsonNode message) {
         int tempo = message.path("tempo").asInt(120);
-        int choruses = message.path("choruses").asInt(2);
-        if (tempo < MIN_TEMPO || tempo > MAX_TEMPO || choruses < 1 || choruses > MAX_CHORUSES) {
-            ctx.send(Wire.error("tempo must be " + MIN_TEMPO + "-" + MAX_TEMPO + " and choruses 1-" + MAX_CHORUSES));
+        int soloChoruses = message.path("soloChoruses").asInt(1);
+        if (tempo < limits.minTempo() || tempo > limits.maxTempo() || soloChoruses < 1 || soloChoruses > limits.maxSoloChoruses()) {
+            ctx.send(Wire.error("tempo must be " + limits.minTempo() + "-" + limits.maxTempo()
+                    + " and soloChoruses 1-" + limits.maxSoloChoruses()));
+            return;
+        }
+        String ensemble = message.path("ensemble").asText("quartet");
+        if (!ensemble.equals("quartet") && !ensemble.equals("duo")) {
+            ctx.send(Wire.error("ensemble must be 'quartet' or 'duo'"));
             return;
         }
         if (running.containsKey(ctx.sessionId())) {
@@ -92,8 +100,10 @@ public final class PerformanceServer implements AutoCloseable {
                 janitor.execute(() -> stop(ctx.sessionId()));
             }
         };
-        running.put(ctx.sessionId(), runtime.perform(
-                SessionConfig.duo(sessionId, Songs.bluesInF(tempo), choruses), sink));
+        SessionConfig session = ensemble.equals("duo")
+                ? SessionConfig.duo(sessionId, Songs.bluesInF(tempo), soloChoruses)
+                : SessionConfig.quartet(sessionId, Songs.bluesInF(tempo), soloChoruses);
+        running.put(ctx.sessionId(), runtime.perform(session, sink));
     }
 
     private void stop(String connectionId) {

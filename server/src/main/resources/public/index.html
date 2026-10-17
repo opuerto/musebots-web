@@ -9,16 +9,22 @@
 <body>
   <main>
     <h1>Musebots</h1>
-    <p class="lead">A piano and a bass, each an autonomous agent, negotiate who plays the intro and then play a 12-bar blues together.</p>
+    <p class="lead">A jazz quartet of autonomous agents (sax, piano, bass and drums) negotiates who plays the intro, plays a 12-bar blues together, then trades solos, passing the lead from one musician to the next. Each musician is really three agents: a musician, a composer and a synchronizer.</p>
 
     <section class="controls">
       <label>Tempo <input id="tempo" type="range" min="60" max="200" value="120"> <output id="tempoOut">120</output> bpm</label>
-      <label>Choruses <input id="choruses" type="number" min="1" max="4" value="2"></label>
+      <label>Ensemble
+        <select id="ensemble">
+          <option value="quartet" selected>Quartet</option>
+          <option value="duo">Duo (piano and bass)</option>
+        </select>
+      </label>
+      <label>Solo choruses <input id="soloChoruses" type="number" min="1" max="2" value="1"></label>
       <button id="start" disabled>Start</button>
       <button id="stop" disabled>Stop</button>
     </section>
 
-    <p id="status" class="status">Connecting…</p>
+    <p id="status" class="status now">Connecting…</p>
 
     <h2>What the musicians say to each other</h2>
     <ol id="conversation" class="conversation"></ol>

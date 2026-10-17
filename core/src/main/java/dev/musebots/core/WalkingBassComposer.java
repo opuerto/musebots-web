@@ -11,9 +11,12 @@ public final class WalkingBassComposer implements PhraseComposer {
     static final int HIGH = 55; // G3
 
     private final RandomGenerator random;
+    private final Improviser solo;
 
     public WalkingBassComposer(RandomGenerator random) {
         this.random = random;
+        this.solo = new Improviser(Instrument.BASS,
+                new Improviser.Profile(LOW, 60, 48, Improviser.SOLO_CELLS, true), random);
     }
 
     @Override
@@ -23,6 +26,19 @@ public final class WalkingBassComposer implements PhraseComposer {
 
     @Override
     public List<NoteEvent> compose(PhraseRequest request) {
+        return switch (request.kind()) {
+            case SOLO -> solo.line(request);
+            case ENDING -> List.of(heldRoot(request));
+            case INTRO, HEAD, SUPPORT -> walk(request);
+        };
+    }
+
+    private static NoteEvent heldRoot(PhraseRequest request) {
+        int midi = place(request.bars().get(0).chord().root());
+        return new NoteEvent(Instrument.BASS, midi, request.startMs(), request.clock().beatsToMillis(3), 100);
+    }
+
+    private List<NoteEvent> walk(PhraseRequest request) {
         List<ChordBar> bars = request.bars();
         List<NoteEvent> notes = new ArrayList<>();
         int beatsPerBar = request.clock().beatsPerBar();

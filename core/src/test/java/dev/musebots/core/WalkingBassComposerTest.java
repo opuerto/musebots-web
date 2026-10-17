@@ -13,7 +13,7 @@ class WalkingBassComposerTest {
     private final List<ChordBar> bars = Songs.bluesInF(120).allBars();
 
     private List<NoteEvent> compose(long seed, long startMs) {
-        return new WalkingBassComposer(new Random(seed)).compose(new PhraseRequest(bars, clock, startMs));
+        return new WalkingBassComposer(new Random(seed)).compose(new PhraseRequest(PhraseKind.SUPPORT, bars, clock, startMs));
     }
 
     @Test
@@ -44,7 +44,7 @@ class WalkingBassComposerTest {
 
     @Test
     void doesNotRunPastTheEndOfThePhrase() {
-        PhraseRequest request = new PhraseRequest(bars, clock, 5_000);
+        PhraseRequest request = new PhraseRequest(PhraseKind.SUPPORT, bars, clock, 5_000);
         long end = request.endMs();
         for (NoteEvent note : new WalkingBassComposer(new Random(4)).compose(request)) {
             assertTrue(note.endMs() <= end);

@@ -1,30 +1,32 @@
 package dev.musebots.agents;
 
-import dev.musebots.core.ChordBar;
-import dev.musebots.core.NoteEvent;
-import dev.musebots.core.PhraseRequest;
+import dev.musebots.core.Instrument;
+import dev.musebots.core.PhraseKind;
+import dev.musebots.core.Segment;
 import dev.musebots.core.SongStructure;
 import dev.musebots.core.StatusEvent;
 import jade.core.AID;
 import jade.core.behaviours.SimpleBehaviour;
 import jade.core.behaviours.TickerBehaviour;
-import jade.core.behaviours.WakerBehaviour;
 import jade.domain.FIPANames;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import jade.proto.ContractNetInitiator;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Vector;
 
 /**
- * Leads the performance, following the paper's leader: wait for the ensemble, share the song,
- * negotiate who plays the intro (Contract Net), then play the head once the intro is over.
- * Each step is a method that runs the next one when its protocol completes.
+ * What a musician does while it has the lead, following the paper's leader: the opening leader assembles the
+ * ensemble, shares the song and negotiates the intro; every leader plays its part, asks the others to back it
+ * up, and then hands the lead to the next soloist, or ends the tune if there is none.
+ *
+ * <p>Each step is a method that runs the next one when its protocol completes, and the leader works a little
+ * ahead of the music rather than writing the whole performance at once.
  */
-final class LeaderRole implements Role {
+final class Leading {
 
     private static final int MAX_INTRO_ATTEMPTS = 3;
     private static final long ENSEMBLE_TIMEOUT_MS = 10_000;
@@ -32,17 +34,25 @@ final class LeaderRole implements Role {
     private static final long PROPOSAL_TIMEOUT_MS = 2_000;
     private static final long FINISH_GRACE_MS = 300;
 
+    /** Shorter intros win; between equal offers, the leader prefers whoever is listed first. */
+    private static final List<Instrument> INTRO_PREFERENCE =
+            List.of(Instrument.PIANO, Instrument.BASS, Instrument.DRUMS, Instrument.SAX);
+    private static final Comparator<Protocol.IntroProposal> INTRO_ORDER =
+            Comparator.comparingInt(Protocol.IntroProposal::bars)
+                    .thenComparingInt(proposal -> INTRO_PREFERENCE.indexOf(proposal.instrument()));
+
+    private final MusicianAgent agent;
     private final MusicianConfig config;
-    private MusicianAgent agent;
     private List<AID> peers = List.of();
 
-    LeaderRole(MusicianConfig config) {
-        this.config = config;
+    Leading(MusicianAgent agent) {
+        this.agent = agent;
+        this.config = agent.config();
     }
 
-    @Override
-    public void attach(MusicianAgent agent) {
-        this.agent = agent;
+    // ---- The opening: assemble, share the song, negotiate the intro ----
+
+    void openPerformance() {
         awaitEnsemble();
     }
 
@@ -52,7 +62,7 @@ final class LeaderRole implements Role {
         agent.addBehaviour(new TickerBehaviour(agent, 100) {
             @Override
             protected void onTick() {
-                List<AID> found = agent.findPeers();
+                List<AID> found = agent.musicians();
                 if (found.size() >= config.ensembleSize() - 1) {
                     stop();
                     peers = found;
@@ -61,7 +71,7 @@ final class LeaderRole implements Role {
                     shareStructure();
                 } else if (now() > deadline) {
                     stop();
-                    fail("the ensemble did not assemble in time");
+                    agent.fail("the ensemble did not assemble in time");
                 }
             }
         });
@@ -103,7 +113,7 @@ final class LeaderRole implements Role {
                 if (pending.isEmpty()) {
                     requestIntro(1);
                 } else {
-                    fail("some musicians never confirmed the song structure");
+                    agent.fail("some musicians never confirmed the song structure");
                 }
                 return 0;
             }
@@ -120,37 +130,91 @@ final class LeaderRole implements Role {
         agent.addBehaviour(new IntroNegotiation(cfp, attempt));
     }
 
-    // Step 4: once the intro is scheduled, play the head right after it and ask the others to join.
-    private void playHead(long headStartMs) {
+    // Step 4: the intro is arranged; the head follows it.
+    private void introArranged(long startMs, long durationMs) {
+        agent.emit(new StatusEvent(StatusEvent.Kind.STARTED, "the intro begins", startMs));
         SongStructure song = config.song();
-        List<ChordBar> bars = new ArrayList<>();
-        for (int i = 0; i < config.choruses(); i++) {
-            bars.addAll(song.allBars());
-        }
-        PhraseRequest phrase = new PhraseRequest(bars, song.clock(), headStartMs);
-        for (NoteEvent note : config.composer().compose(phrase)) {
-            agent.emit(note);
-        }
-
-        Protocol.PlayRequest payload = new Protocol.PlayRequest(headStartMs, config.choruses());
-        for (AID peer : peers) {
-            ACLMessage request = agent.newMessage(ACLMessage.REQUEST, Protocol.PLAY_HEAD, payload);
-            request.setProtocol(FIPANames.InteractionProtocol.FIPA_REQUEST);
-            request.addReceiver(peer);
-            agent.say(request, "join me for the head at " + headStartMs);
-        }
-
-        long finishAt = phrase.endMs() + FINISH_GRACE_MS;
-        agent.addBehaviour(new WakerBehaviour(agent, Math.max(0, finishAt - now())) {
-            @Override
-            protected void onWake() {
-                agent.emit(new StatusEvent(StatusEvent.Kind.FINISHED, "the performance is over", now()));
-            }
-        });
+        long headStart = startMs + durationMs;
+        Segment head = new Segment("HEAD", PhraseKind.HEAD, config.instrument(), headStart,
+                headStart + song.clock().barsToMillis(song.allBars().size()));
+        lead(head, PhraseKind.HEAD, config.soloOrder(), true);
     }
 
-    private void fail(String reason) {
-        agent.emit(new StatusEvent(StatusEvent.Kind.FAILED, reason, now()));
+    // ---- Leading a part of the tune, whoever is leading ----
+
+    /** The musician who was handed the lead: look up when its solo is, then play it. */
+    void takeLead(Protocol.TakeLead handover) {
+        agent.whenIs(handover.segmentId(), segment -> lead(segment, PhraseKind.SOLO, handover.remaining(), false));
+    }
+
+    /**
+     * Plays a part of the tune, asks the others to back it up, and arranges what follows shortly before it ends.
+     *
+     * @param record whether this musician is the one who decided the segment (and so puts it on its timeline)
+     */
+    private void lead(Segment segment, PhraseKind myPart, List<Instrument> soloists, boolean record) {
+        agent.emit(new StatusEvent(StatusEvent.Kind.SECTION, label(segment), segment.startMs()));
+        if (record) {
+            agent.record(segment);
+        }
+        agent.compose(myPart, segment);
+        askForSupport(segment);
+
+        if (segment.kind() == PhraseKind.ENDING) {
+            agent.at(segment.endMs() + FINISH_GRACE_MS, () ->
+                    agent.emit(new StatusEvent(StatusEvent.Kind.FINISHED, "the performance is over", now())));
+        } else {
+            agent.at(segment.endMs() - config.planAheadMs(), () -> whatNext(segment.endMs(), soloists));
+        }
+    }
+
+    /** The next soloist takes the lead, or if everybody has played, the tune ends. */
+    private void whatNext(long startMs, List<Instrument> soloists) {
+        SongStructure song = agent.structure();
+        if (soloists.isEmpty()) {
+            Segment ending = new Segment("ENDING", PhraseKind.ENDING, config.instrument(), startMs,
+                    startMs + song.clock().barsToMillis(1));
+            lead(ending, PhraseKind.ENDING, List.of(), true);
+            return;
+        }
+
+        Instrument next = soloists.get(0);
+        List<Instrument> after = soloists.subList(1, soloists.size());
+        Segment solo = new Segment("SOLO-" + next.name(), PhraseKind.SOLO, next, startMs,
+                startMs + song.clock().barsToMillis(song.allBars().size() * config.soloChoruses()));
+        if (next == config.instrument()) {
+            lead(solo, PhraseKind.SOLO, after, true);
+        } else {
+            agent.record(solo);
+            passLead(next, solo, after);
+        }
+    }
+
+    private void passLead(Instrument next, Segment solo, List<Instrument> after) {
+        ACLMessage request = agent.newMessage(ACLMessage.REQUEST, Protocol.TAKE_LEAD,
+                new Protocol.TakeLead(solo.id(), after));
+        request.setProtocol(FIPANames.InteractionProtocol.FIPA_REQUEST);
+        request.addReceiver(agent.musician(next));
+        agent.say(request, "your turn, " + next.name().toLowerCase() + ": the lead is yours for " + solo.id());
+    }
+
+    private void askForSupport(Segment segment) {
+        for (AID peer : agent.musicians()) {
+            ACLMessage request = agent.newMessage(ACLMessage.REQUEST, Protocol.ACCOMPANY,
+                    new Protocol.Accompany(segment.id(), config.instrument()));
+            request.setProtocol(FIPANames.InteractionProtocol.FIPA_REQUEST);
+            request.addReceiver(peer);
+            agent.say(request, "back me up in " + segment.id());
+        }
+    }
+
+    private static String label(Segment segment) {
+        return switch (segment.kind()) {
+            case HEAD -> "The head";
+            case SOLO -> segment.leader().name().toLowerCase() + " solo";
+            case ENDING -> "The ending";
+            default -> segment.id();
+        };
     }
 
     private long now() {
@@ -172,14 +236,14 @@ final class LeaderRole implements Role {
         @SuppressWarnings({"rawtypes", "unchecked"})
         protected void handleAllResponses(Vector responses, Vector acceptances) {
             ACLMessage best = null;
-            int bestBars = Integer.MAX_VALUE;
+            Protocol.IntroProposal bestProposal = null;
             for (Object response : responses) {
                 ACLMessage reply = (ACLMessage) response;
                 if (reply.getPerformative() == ACLMessage.PROPOSE) {
-                    int bars = Json.read(reply.getContent(), Protocol.IntroProposal.class).bars();
-                    if (bars < bestBars) {
+                    Protocol.IntroProposal proposal = Json.read(reply.getContent(), Protocol.IntroProposal.class);
+                    if (bestProposal == null || INTRO_ORDER.compare(proposal, bestProposal) < 0) {
                         best = reply;
-                        bestBars = bars;
+                        bestProposal = proposal;
                     }
                 }
             }
@@ -210,8 +274,7 @@ final class LeaderRole implements Role {
         protected void handleInform(ACLMessage inform) {
             introScheduled = true;
             Protocol.IntroPerformed performed = Json.read(inform.getContent(), Protocol.IntroPerformed.class);
-            agent.emit(new StatusEvent(StatusEvent.Kind.STARTED, "the intro begins", performed.startMs()));
-            playHead(performed.startMs() + performed.durationMs());
+            introArranged(performed.startMs(), performed.durationMs());
         }
 
         /** Runs when the protocol has ended, whether or not anyone delivered an intro. */
@@ -221,7 +284,7 @@ final class LeaderRole implements Role {
                 if (attempt < MAX_INTRO_ATTEMPTS) {
                     requestIntro(attempt + 1);
                 } else {
-                    fail("nobody would play the intro");
+                    agent.fail("nobody would play the intro");
                 }
             }
             return super.onEnd();

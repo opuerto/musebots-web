@@ -34,13 +34,14 @@ public final class EnsembleRuntime implements AutoCloseable {
         return new EnsembleRuntime(Runtime.instance().createMainContainer(profile));
     }
 
-    /** Starts the musicians of one session. Every event they produce goes to {@code sink}. */
+    /** Starts the Musebots of one session. Every event their agents produce goes to {@code sink}. */
     public Performance perform(SessionConfig session, EventSink sink) {
         List<AgentController> started = new ArrayList<>();
         try {
-            started.add(launch(session, sink, session.leader(), Role.Kind.LEADER));
-            for (Instrument instrument : session.accompanists()) {
-                started.add(launch(session, sink, instrument, Role.Kind.ACCOMPANIST));
+            List<Instrument> everyone = new ArrayList<>(List.of(session.leader()));
+            everyone.addAll(session.accompanists());
+            for (Instrument instrument : everyone) {
+                launchMusebot(session, sink, instrument, started);
             }
         } catch (StaleProxyException e) {
             new Performance(session.sessionId(), started).stop();
@@ -49,20 +50,26 @@ public final class EnsembleRuntime implements AutoCloseable {
         return new Performance(session.sessionId(), started);
     }
 
-    private AgentController launch(SessionConfig session, EventSink sink, Instrument instrument, Role.Kind role)
-            throws StaleProxyException {
-        MusicianConfig config = new MusicianConfig(
-                session.sessionId(),
-                instrument,
-                role,
+    /** A Musebot is three agents: the composer and synchronizer first, so they are ready when the musician is. */
+    private void launchMusebot(SessionConfig session, EventSink sink, Instrument instrument,
+                               List<AgentController> started) throws StaleProxyException {
+        String id = session.sessionId();
+        ComposerConfig composer = new ComposerConfig(id, instrument,
                 Composers.defaultFor(instrument, new Random(session.seed() + instrument.ordinal())),
-                sink,
-                session.clock(),
-                role == Role.Kind.LEADER ? session.song() : null,
-                session.choruses(),
-                session.ensembleSize(),
-                session.leadInMs());
-        AgentController controller = container.acceptNewAgent(config.agentName(), new MusicianAgent(config));
+                sink, session.clock());
+        SynchronizerConfig synchronizer = new SynchronizerConfig(id, instrument, sink, session.clock());
+        boolean opens = instrument == session.leader();
+        MusicianConfig musician = new MusicianConfig(id, instrument, opens, sink, session.clock(),
+                opens ? session.song() : null, session.soloOrder(), session.soloChoruses(),
+                session.ensembleSize(), session.leadInMs(), session.planAheadMs());
+
+        started.add(start(Names.of(id, instrument, Names.Part.COMPOSER), new ComposerAgent(composer)));
+        started.add(start(Names.of(id, instrument, Names.Part.SYNCHRONIZER), new SynchronizerAgent(synchronizer)));
+        started.add(start(Names.of(id, instrument, Names.Part.MUSICIAN), new MusicianAgent(musician)));
+    }
+
+    AgentController start(String name, jade.core.Agent agent) throws StaleProxyException {
+        AgentController controller = container.acceptNewAgent(name, agent);
         controller.start();
         return controller;
     }
