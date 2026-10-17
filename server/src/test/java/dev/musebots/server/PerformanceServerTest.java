@@ -91,7 +91,8 @@ class PerformanceServerTest {
     void servesTheWebClient() throws Exception {
         HttpResponse<String> response = get("/");
         assertEquals(200, response.statusCode());
-        assertTrue(response.body().contains("Musebots"));
+        assertTrue(response.body().contains("Musebot Agents"), "the page should carry its title");
+        assertTrue(response.body().contains("Oscar Puerto"), "the page should credit its author");
     }
 
     /** If the page imports a script the server does not serve, the page silently does nothing: check every one. */

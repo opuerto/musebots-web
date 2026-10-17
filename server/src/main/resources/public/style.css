@@ -29,8 +29,13 @@
 body { margin: 0; background: var(--bg); color: var(--ink); }
 main { max-width: 68rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
 
-.hero h1 { margin: 0; font-size: 2rem; letter-spacing: -.02em; }
-.lead { margin: .4rem 0 0; max-width: 46rem; color: var(--muted); line-height: 1.5; }
+.hero h1 { margin: 0; font-size: 2rem; letter-spacing: .03em; text-transform: uppercase; }
+.hero h1 .by { display: block; margin-top: .15rem; font-size: 1rem; font-weight: 600; letter-spacing: .12em; color: var(--muted); }
+.lead { margin: .6rem 0 0; max-width: 46rem; color: var(--muted); line-height: 1.5; }
+.research { margin: .6rem 0 0; max-width: 46rem; line-height: 1.5; }
+.paper { margin: .6rem 0 0; max-width: 46rem; padding: .5rem .8rem; border-left: 4px solid var(--primary); background: var(--panel); border-radius: 0 10px 10px 0; font-size: .9rem; line-height: 1.45; }
+.paper .label { display: inline-block; margin-right: .4rem; font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--primary); }
+.paper a { color: var(--primary); font-weight: 600; }
 
 /* ---- controls ---- */
 .controls {
