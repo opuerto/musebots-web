@@ -9,6 +9,8 @@ import dev.musebots.core.EventSink;
 import dev.musebots.core.Instrument;
 import dev.musebots.core.NoteEvent;
 import dev.musebots.core.PerformanceEvent;
+import dev.musebots.core.PhraseComposer;
+import dev.musebots.core.PhraseRequest;
 import dev.musebots.core.PhraseKind;
 import dev.musebots.core.Segment;
 import dev.musebots.core.SegmentEvent;
@@ -181,6 +183,50 @@ class EnsembleRuntimeTest {
             assertFalse(recorder.notes(instrument, ending, ending + BAR_MS).isEmpty(), instrument + " in the ending");
         }
         assertTrue(recorder.notes(Instrument.PIANO, ending + BAR_MS, Long.MAX_VALUE).isEmpty());
+    }
+
+    /** A bass whose solos are all one pitch, so a test can tell whose solo it is hearing; everything else is as usual. */
+    private static final int MARKER_PITCH = 99;
+
+    @Test
+    void theBandPlaysWithWhicheverComposersItIsGiven() throws InterruptedException {
+        ComposerFactory marked = (instrument, random) -> {
+            PhraseComposer normal = ComposerFactory.rules().create(instrument, random);
+            if (instrument != Instrument.BASS) {
+                return normal;
+            }
+            return new PhraseComposer() {
+                @Override
+                public Instrument instrument() {
+                    return Instrument.BASS;
+                }
+
+                @Override
+                public List<NoteEvent> compose(PhraseRequest request) {
+                    if (request.kind() != PhraseKind.SOLO) {
+                        return normal.compose(request);
+                    }
+                    return List.of(new NoteEvent(Instrument.BASS, MARKER_PITCH, request.startMs(), 100, 90));
+                }
+            };
+        };
+        Recorder recorder = new Recorder();
+        Performance performance = runtime.perform(session("factory", Instrument.PIANO, List.of(Instrument.BASS)), recorder, marked);
+        try {
+            assertTrue(recorder.done.await(60, TimeUnit.SECONDS), "performance did not finish");
+        } finally {
+            performance.stop();
+        }
+        recorder.assertFinished();
+
+        long bassSolo = recorder.sectionStart("bass solo");
+        long ending = recorder.sectionStart("The ending");
+        List<NoteEvent> duringSolo = recorder.notes(Instrument.BASS, bassSolo, ending);
+        assertEquals(1, duringSolo.size());
+        assertEquals(MARKER_PITCH, duringSolo.get(0).midi(), "the bass solo came from the composer the factory gave it");
+        // Its accompaniment, and the piano's solo, were still written the ordinary way.
+        assertTrue(recorder.notes(Instrument.BASS).stream().filter(n -> n.midi() != MARKER_PITCH).count() > 60);
+        assertTrue(recorder.notes(Instrument.PIANO).stream().noneMatch(n -> n.midi() == MARKER_PITCH));
     }
 
     @Test

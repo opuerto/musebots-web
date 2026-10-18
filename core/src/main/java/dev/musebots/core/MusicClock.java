@@ -9,6 +9,11 @@ public record MusicClock(int tempoBpm, int beatsPerBar) {
         }
     }
 
+    /** The exact length of a beat. {@code beatsToMillis(1)} is this rounded, so never multiply that by fractional beats. */
+    public double millisPerBeat() {
+        return 60_000.0 / tempoBpm;
+    }
+
     public long beatsToMillis(double beats) {
         return Math.round(beats * 60_000.0 / tempoBpm);
     }

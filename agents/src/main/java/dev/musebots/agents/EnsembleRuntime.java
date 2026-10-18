@@ -1,6 +1,5 @@
 package dev.musebots.agents;
 
-import dev.musebots.core.Composers;
 import dev.musebots.core.EventSink;
 import dev.musebots.core.Instrument;
 import jade.core.Profile;
@@ -34,14 +33,19 @@ public final class EnsembleRuntime implements AutoCloseable {
         return new EnsembleRuntime(Runtime.instance().createMainContainer(profile));
     }
 
-    /** Starts the Musebots of one session. Every event their agents produce goes to {@code sink}. */
+    /** Starts the Musebots of one session, composing with the band's hand-written rules. */
     public Performance perform(SessionConfig session, EventSink sink) {
+        return perform(session, sink, ComposerFactory.rules());
+    }
+
+    /** Starts the Musebots of one session. Every event their agents produce goes to {@code sink}. */
+    public Performance perform(SessionConfig session, EventSink sink, ComposerFactory composers) {
         List<AgentController> started = new ArrayList<>();
         try {
             List<Instrument> everyone = new ArrayList<>(List.of(session.leader()));
             everyone.addAll(session.accompanists());
             for (Instrument instrument : everyone) {
-                launchMusebot(session, sink, instrument, started);
+                launchMusebot(session, sink, composers, instrument, started);
             }
             AgentController conductor = start(Names.conductor(session.sessionId()), new ConductorAgent(
                     new ConductorConfig(session.sessionId(), everyone, sink, session.clock())));
@@ -54,11 +58,11 @@ public final class EnsembleRuntime implements AutoCloseable {
     }
 
     /** A Musebot is four agents: the others first, so they are ready when the musician is. */
-    private void launchMusebot(SessionConfig session, EventSink sink, Instrument instrument,
+    private void launchMusebot(SessionConfig session, EventSink sink, ComposerFactory composers, Instrument instrument,
                                List<AgentController> started) throws StaleProxyException {
         String id = session.sessionId();
         ComposerConfig composer = new ComposerConfig(id, instrument,
-                Composers.defaultFor(instrument, new Random(session.seed() + instrument.ordinal())),
+                composers.create(instrument, new Random(session.seed() + instrument.ordinal())),
                 sink, session.clock(), session.noteLookaheadMs());
         SynchronizerConfig synchronizer = new SynchronizerConfig(id, instrument, sink, session.clock());
         boolean opens = instrument == session.leader();

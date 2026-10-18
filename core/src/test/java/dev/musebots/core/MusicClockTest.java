@@ -16,6 +16,14 @@ class MusicClockTest {
     }
 
     @Test
+    void aBeatIsExactlyAsLongAsItIsNotJustItsRoundedMilliseconds() {
+        MusicClock clock = new MusicClock(960, 4); // 62.5 ms a beat
+        assertEquals(62.5, clock.millisPerBeat(), 1e-12);
+        assertEquals(63, clock.beatsToMillis(1), "rounded, which is why it must not be multiplied");
+        assertEquals(3000, clock.beatsToMillis(48), "but 48 beats are exactly 3000 ms, not 48 x 63");
+    }
+
+    @Test
     void rejectsNonPositiveTempo() {
         assertThrows(IllegalArgumentException.class, () -> new MusicClock(0, 4));
     }
