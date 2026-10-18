@@ -32,10 +32,9 @@ test('drums keep the order they were hit in', () => {
   assert.equal(readout('DRUMS', [51, 36]), 'Ride · Kick');
 });
 
-test('every instrument has a picture, a colour and a place in the band', () => {
+test('every instrument has a colour and a place in the band', () => {
   assert.deepEqual(ORDER, ['SAX', 'PIANO', 'BASS', 'DRUMS']);
   for (const instrument of ORDER) {
-    assert.match(INSTRUMENTS[instrument].asset, /^assets\/\w+\.svg$/);
     assert.match(INSTRUMENTS[instrument].color, /^#[0-9a-f]{6}$/i);
   }
 });

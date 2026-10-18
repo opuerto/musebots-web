@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Musebot">
+  <line x1="32" y1="6" x2="32" y2="14" stroke="#53606f" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="32" cy="5" r="3.5" fill="#d99a1e"/>
+  <rect x="9" y="14" width="46" height="38" rx="12" fill="#dfe5ec" stroke="#53606f" stroke-width="3"/>
+  <rect x="15" y="22" width="34" height="16" rx="8" fill="#1c2633"/>
+  <circle cx="25" cy="30" r="4" fill="#7ff3ff"/><circle cx="39" cy="30" r="4" fill="#7ff3ff"/>
+  <line x1="24" y1="45" x2="40" y2="45" stroke="#7f8b99" stroke-width="3" stroke-linecap="round"/>
+  <rect x="3" y="26" width="6" height="12" rx="2" fill="#9aa6b4"/><rect x="55" y="26" width="6" height="12" rx="2" fill="#9aa6b4"/>
+</svg>

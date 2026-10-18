@@ -72,6 +72,8 @@ final class Wire {
         ObjectNode node = MAPPER.createObjectNode();
         node.put("id", id);
         node.put("title", song.title());
+        node.put("style", Songs.styleOf(id));
+        node.put("suggestedTempo", Songs.suggestedTempo(id));
         node.put("form", song.form());
         node.put("tempoBpm", song.tempoBpm());
         node.put("beatsPerBar", song.beatsPerBar());

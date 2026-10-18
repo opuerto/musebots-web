@@ -25,3 +25,24 @@ test('the page says it is research and cites the paper, linking to it', () => {
   assert.equal(link[1], 'https://computationalcreativity.net/iccc2017/ICCC_17_accepted_submissions/ICCC-17_paper_57.pdf');
   assert.match(link[2], /rel="noopener noreferrer"/, 'a link that opens a new tab must not hand it this page');
 });
+
+test('every recording used is credited on the page, with its licence and where it came from, and nothing else is', async () => {
+  const { SAMPLE_SETS } = await import('../../main/resources/public/sampleSets.js');
+  const credits = /<details class="credits">(.*?)<\/details>/s.exec(html)[1];
+  const text = credits.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+  for (const word of ['Salamander', 'Alexander Holm', 'FluidR3', 'Tone.js']) assert.ok(text.includes(word), `the credits should name ${word}`);
+  assert.ok(text.includes('MIT'), 'Tone.js is MIT licensed');
+  assert.ok(text.includes('sax and the drums are synthesized'), 'and says what is not a recording');
+  // The recordings that were tried and removed must not still be credited.
+  for (const removed of ['Karoryfer', 'Berklee']) assert.ok(!text.includes(removed), `${removed} is no longer used`);
+
+  assert.deepEqual(Object.keys(SAMPLE_SETS), ['PIANO', 'BASS']);
+  assert.ok(Object.values(SAMPLE_SETS).every((set) => set.license === 'CC BY 3.0'));
+  const links = [...credits.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+  for (const expected of ['https://creativecommons.org/licenses/by/3.0/', 'https://creativecommons.org/licenses/by/3.0/us/',
+    'https://github.com/Tonejs/audio/tree/master/salamander', 'https://github.com/gleitz/midi-js-soundfonts']) {
+    assert.ok(links.includes(expected), `missing link ${expected}`);
+  }
+  assert.ok([...credits.matchAll(/<a [^>]*target="_blank"[^>]*>/g)].every((match) => match[0].includes('rel="noopener noreferrer"')));
+});

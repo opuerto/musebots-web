@@ -68,7 +68,7 @@ public final class EnsembleRuntime implements AutoCloseable {
         boolean opens = instrument == session.leader();
         MusicianConfig musician = new MusicianConfig(id, instrument, opens, sink, session.clock(),
                 opens ? session.song() : null, session.soloOrder(), session.soloChoruses(),
-                session.ensembleSize(), session.leadInMs(), session.planAheadMs());
+                session.ensembleSize(), session.leadInMs(), session.planAheadMs(), session.introPreference());
 
         started.add(start(Names.of(id, instrument, Names.Part.ASSISTANT),
                 new EnsembleAssistantAgent(new AssistantConfig(id, instrument, sink, session.clock()))));

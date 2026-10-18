@@ -3,9 +3,11 @@
 
 import { buildChart } from './chart.js';
 import { buildInstruments } from './instruments.js';
+import { describeSources } from './soundStatus.js';
 import { caption, leaderLabel } from './narrator.js';
 import { ORDER, readout } from './notes.js';
 import { buildStage } from './stage.js';
+import { reactionTo } from './reactions.js';
 import { locate, positionTitle, roleOf, whereText } from './timeline.js';
 
 const SYNC_ROUNDS = 8;
@@ -17,6 +19,9 @@ const ENSEMBLES = { quartet: ['SAX', 'PIANO', 'BASS', 'DRUMS'], duo: ['PIANO', '
 const els = {
   song: document.getElementById('song'),
   soloComposer: document.getElementById('soloComposer'),
+  sound: document.getElementById('sound'),
+  feel: document.getElementById('feel'),
+  soundStatus: document.getElementById('soundStatus'),
   credit: document.getElementById('credit'),
   tempo: document.getElementById('tempo'),
   tempoOut: document.getElementById('tempoOut'),
@@ -37,7 +42,8 @@ const els = {
 let socket;
 let clockOffsetMs = 0; // serverTime - clientTime, from the lowest-latency sync round
 let bestRtt = Infinity;
-let instruments = null;
+let band = null; // the instruments, once built: { instruments, sources, dispose }
+let bandBuild = null; // the band being built (a promise), so a second request does not start a second build
 let performing = false;
 let renderTimer = null;
 
@@ -91,6 +97,7 @@ function handle(message) {
   switch (message.type) {
     case 'hello':
       catalogue = Object.fromEntries((message.songs ?? []).map((tune) => [tune.id, tune]));
+      offerSongs(message.songs ?? []);
       offerSoloComposers(message.soloComposers ?? []);
       preview();
       break;
@@ -107,8 +114,8 @@ function handle(message) {
     }
     case 'song': showSong(message); break;
     case 'segment': segments = [...segments, message].sort((a, b) => a.startMs - b.startMs); break;
-    case 'note': if (schedule(message)) remember(message); break;
-    case 'conversation': log(message); break;
+    case 'note': if (performing && schedule(message)) remember(message); break; // a stray note after Stop must not sound
+    case 'conversation': log(message); react(message); break;
     case 'status': onStatus(message); break;
     case 'error':
       setStatus(`Error: ${message.message}`);
@@ -121,8 +128,46 @@ function handle(message) {
 
 // ---- sound ----
 
+/**
+ * Builds the band for the chosen sound. Anything built before is taken down first, which also silences any note it still had
+ * scheduled. Recordings are only downloaded once: a rebuilt band reuses what is already loaded.
+ */
+function loadBand() {
+  discardBand();
+  const sound = els.sound.value;
+  els.soundStatus.textContent = sound === 'synth' ? 'Playing with the synthesizer.' : 'Loading the piano and bass recordings…';
+  const build = buildInstruments(Tone, {
+    sound,
+    onProgress: ({ done, total }) => {
+      if (build === bandBuild) els.soundStatus.textContent = `Loading the piano and bass recordings… ${done} of ${total}`;
+    },
+  }).then((built) => {
+    if (build !== bandBuild) { // the choice changed while this was loading
+      built.dispose();
+      return null;
+    }
+    band = built;
+    els.soundStatus.textContent = describeSources(built.sources);
+    return built;
+  }).catch((error) => {
+    if (build === bandBuild) {
+      bandBuild = null; // so the next start tries again
+      els.soundStatus.textContent = `The band could not be built: ${error.message}`;
+    }
+    return null;
+  });
+  bandBuild = build;
+  return build;
+}
+
+function discardBand() {
+  band?.dispose();
+  band = null;
+  bandBuild = null;
+}
+
 function schedule(note) {
-  const instrument = instruments?.[note.instrument];
+  const instrument = band?.instruments?.[note.instrument];
   if (!instrument) return false;
   const delaySeconds = (note.startMs - serverNow()) / 1000;
   if (delaySeconds < -0.05) return false; // arrived too late to play in time
@@ -166,9 +211,29 @@ function showCredit() {
   els.credit.hidden = !credit;
 }
 
-/** Before the band starts, show the chart of the chosen tune. */
-function preview() {
-  if (!performing && catalogue[els.song.value]) showSong(catalogue[els.song.value]);
+/** Lists the tunes the server offers, with the style each is played in. */
+function offerSongs(tunes) {
+  if (!tunes.length) return;
+  const chosen = els.song.value;
+  els.song.replaceChildren(...tunes.map((tune) => {
+    const entry = document.createElement('option');
+    entry.value = tune.id;
+    const bars = tune.sections.reduce((total, section) => total + section.bars.length, 0);
+    entry.textContent = `${tune.title} · ${tune.style ?? tune.form} · ${bars} bars`;
+    return entry;
+  }));
+  els.song.value = catalogue[chosen] ? chosen : tunes[0].id;
+}
+
+/** Before the band starts, show the chart of the chosen tune, and offer the tempo it is usually played at. */
+function preview(suggestTempo = false) {
+  const tune = catalogue[els.song.value];
+  if (performing || !tune) return;
+  showSong(tune);
+  if (suggestTempo && tune.suggestedTempo) {
+    els.tempo.value = tune.suggestedTempo;
+    els.tempoOut.textContent = String(tune.suggestedTempo);
+  }
 }
 
 function render() {
@@ -209,6 +274,7 @@ function stopRendering() {
 /** Whatever ended the performance, put the page back so another can start. */
 function endPerformance() {
   performing = false;
+  els.sound.disabled = false;
   stopRendering();
   els.start.disabled = false;
   els.stop.disabled = true;
@@ -218,6 +284,15 @@ function endPerformance() {
   els.chartPosition.textContent = '';
   els.caption.textContent = '';
   els.where.textContent = '';
+}
+
+/** The robots speak up and listen, as the musicians' messages come in. */
+function react(message) {
+  if (!performing) return;
+  const reaction = reactionTo(message);
+  if (!reaction) return;
+  stage.say(reaction.speaker, reaction.text);
+  reaction.listeners.forEach((instrument) => stage.listen(instrument));
 }
 
 function log(message) {
@@ -258,17 +333,20 @@ function onStatus(message) {
 els.tempo.addEventListener('input', () => { els.tempoOut.textContent = els.tempo.value; });
 // Before the start this chooses the tempo; during a performance it is the Conductor changing it.
 els.tempo.addEventListener('change', () => { if (performing) conduct('tempo', { value: Number(els.tempo.value) }); });
-els.song.addEventListener('change', preview);
+els.song.addEventListener('change', () => preview(true));
+els.sound.addEventListener('change', () => { if (!performing) loadBand(); });
 els.soloComposer.addEventListener('change', showCredit);
 els.ensemble.addEventListener('change', () => { if (!performing) stage.setBand(ENSEMBLES[els.ensemble.value]); });
 
 els.start.addEventListener('click', async () => {
   await Tone.start(); // browsers only allow audio after a user gesture
-  instruments ??= buildInstruments(Tone);
+  await (band ? band : bandBuild ?? loadBand()); // the recordings may still be loading
+  if (!band) return; // the band could not be built; the status line says why
   els.conversation.replaceChildren();
   segments = [];
   played = freshPlayed();
   performing = true;
+  els.sound.disabled = true;
   els.start.disabled = true;
   els.stop.disabled = false;
   stage.reset();
@@ -280,6 +358,7 @@ els.start.addEventListener('click', async () => {
     type: 'start',
     song: els.song.value,
     soloComposer: els.soloComposer.value,
+    feel: els.feel.value,
     tempo: Number(els.tempo.value),
     soloChoruses: Number(els.soloChoruses.value),
     ensemble: els.ensemble.value,
@@ -288,11 +367,12 @@ els.start.addEventListener('click', async () => {
 
 els.stop.addEventListener('click', () => {
   socket.send(JSON.stringify({ type: 'stop' }));
-  // Notes are scheduled ahead on the audio clock; disposing the synths silences whatever is still queued.
-  Object.values(instruments ?? {}).forEach((i) => i.dispose());
-  instruments = null;
+  // Notes are scheduled ahead on the audio clock; taking the band down silences whatever is still queued. A new band is
+  // built straight away from what is already loaded, ready for the next start.
   endPerformance();
+  loadBand();
   setStatus('Stopped.');
 });
 
 connect();
+loadBand();

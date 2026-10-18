@@ -1,6 +1,7 @@
 // The band on stage: a card per instrument with its picture, what it is doing, the notes it is playing, and its
 // volume and mute.
 import { INSTRUMENTS, ORDER } from './notes.js';
+import { buildRobot } from './robots.js';
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -8,6 +9,9 @@ function element(tag, className, text) {
   if (text !== undefined) node.textContent = text;
   return node;
 }
+
+/** How long a robot's words stay up. */
+const SPEECH_MS = 2200;
 
 export function buildStage(root, { onMute, onVolume }) {
   const cards = {};
@@ -20,10 +24,9 @@ export function buildStage(root, { onMute, onVolume }) {
     card.style.setProperty('--accent', info.color);
 
     const art = element('div', 'art');
-    const picture = element('img');
-    picture.src = info.asset;
-    picture.alt = info.label;
-    art.append(picture);
+    const bubble = element('p', 'bubble', '');
+    bubble.hidden = true;
+    art.append(buildRobot(instrument, info.label), bubble);
 
     const role = element('p', 'role waiting', 'Waiting');
     const readout = element('p', 'readout', ' ');
@@ -46,7 +49,7 @@ export function buildStage(root, { onMute, onVolume }) {
     card.append(art, element('h3', 'name', info.label), role, readout, level, mix);
     root.append(card);
 
-    const state = { muted: false, card, role, readout, levelFill, mute, volume, volumeOut };
+    const state = { muted: false, card, role, readout, levelFill, mute, volume, volumeOut, bubble, quiet: null, deaf: null };
     cards[instrument] = state;
 
     mute.addEventListener('click', () => {
@@ -80,12 +83,36 @@ export function buildStage(root, { onMute, onVolume }) {
     reset() {
       for (const state of Object.values(cards)) {
         state.muted = false;
-        state.card.classList.remove('muted', 'playing');
+        state.card.classList.remove('muted', 'playing', 'talking', 'listening');
+        state.bubble.hidden = true;
         state.mute.setAttribute('aria-pressed', 'false');
         state.mute.textContent = 'Mute';
         state.volume.value = '100';
         state.volumeOut.textContent = '100%';
       }
+    },
+
+    /** The robot says something: a speech bubble and a blinking bulb, for a moment. */
+    say(instrument, text, ms = SPEECH_MS) {
+      const state = cards[instrument];
+      if (!state) return;
+      clearTimeout(state.quiet);
+      state.bubble.textContent = text;
+      state.bubble.hidden = false;
+      state.card.classList.add('talking');
+      state.quiet = setTimeout(() => {
+        state.bubble.hidden = true;
+        state.card.classList.remove('talking');
+      }, ms);
+    },
+
+    /** The robot turns to listen to whoever is speaking to it. */
+    listen(instrument, ms = SPEECH_MS) {
+      const state = cards[instrument];
+      if (!state) return;
+      clearTimeout(state.deaf);
+      state.card.classList.add('listening');
+      state.deaf = setTimeout(() => state.card.classList.remove('listening'), ms);
     },
 
     /**

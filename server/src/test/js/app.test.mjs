@@ -5,6 +5,7 @@
 // A script error on the Start path (the page doing nothing when you press the button) fails here.
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { forgetLoadedSets } from '../../main/resources/public/sampleSets.js';
 import { findAll, installDocument, withClass } from './fake-dom.mjs';
 import { makeFakeTone } from './fake-tone.mjs';
 
@@ -19,9 +20,15 @@ class FakeSocket {
 globalThis.WebSocket = FakeSocket;
 
 const calls = [];
-globalThis.Tone = makeFakeTone(calls);
+const badUrls = [];
+const tone = makeFakeTone(calls, { badUrls });
+globalThis.Tone = tone;
+// The bass recording is a JavaScript file fetched as text.
+globalThis.fetch = async () => ({ ok: true, status: 200, text: async () =>
+  `MIDI.Soundfont.acoustic_bass = {${['C2', 'D2', 'E2', 'F2', 'G2', 'A2', 'B2', 'C3'].map((n) => `"${n}": "data:audio/mp3;base64,AAAA"`).join(',')},}` });
 
 await import('../../main/resources/public/app.js');
+await new Promise((resolve) => setTimeout(resolve, 30)); // the page starts loading its recordings as it opens
 const socket = FakeSocket.instance;
 const sentOfType = (type) => socket.sent.filter((m) => m.type === type);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -36,6 +43,12 @@ const card = (instrument) => cards().find((c) => c.dataset.instrument === instru
 const part = (instrument, className) => findAll(card(instrument), withClass(className))[0];
 const chartRows = () => findAll(page.chart, withClass('section-row'));
 let headEnd; // when the head the test announces ends, so the solo that follows can start exactly then
+
+test('the page loads the piano and bass recordings as it opens, and says what it is playing with', () => {
+  assert.equal(page.soundStatus.textContent, 'Playing with recordings of the piano and bass; the sax and drums are synthesized.');
+  assert.equal(tone.loads.length, 38, 'only the piano (30 files) and the bass (8 in its register) are downloaded');
+  assert.equal(page.sound.value, 'mixed');
+});
 
 test('the page connects to the server over a websocket and syncs the clock', () => {
   assert.equal(socket.url, 'ws://localhost:7070/ws');
@@ -65,6 +78,26 @@ test('the server offers its tunes, and the page previews the chart of the one ch
   assert.equal(page.songTitle.textContent, 'Song 1');
   assert.deepEqual(chartRows().map((row) => findAll(row, withClass('badge'))[0].textContent), ['A', 'A', 'B']);
   assert.deepEqual(chartRows().map((row) => findAll(row, withClass('bar')).length), [4, 4, 2]);
+});
+
+test('the song menu lists every tune the server offers with its style, and choosing one offers its tempo', async () => {
+  const BALLAD = { id: 'ballad', title: 'Ballad in Eb', style: 'Slow ballad', suggestedTempo: 66, form: 'AB', tempoBpm: 120, beatsPerBar: 4, ending: 'EbM7',
+    sections: [{ name: 'A', bars: ['EbM7', 'Cm7', 'Fm7', 'Bb7'] }, { name: 'B', bars: ['Gm7', 'C7', 'Fm7', 'Bb7'] }] };
+  socket.receive({ type: 'hello', serverMs: Date.now(), songs: [{ ...BLUES, style: 'Medium swing blues', suggestedTempo: 120 }, BALLAD] });
+  assert.deepEqual(page.song.children.map((o) => [o.value, o.textContent]),
+    [['blues', 'Blues in F · Medium swing blues · 12 bars'], ['ballad', 'Ballad in Eb · Slow ballad · 8 bars']]);
+
+  page.song.value = 'ballad';
+  await page.song.fire('change');
+  assert.equal(page.songTitle.textContent, 'Ballad in Eb');
+  assert.equal(page.tempo.value, 66);
+  assert.equal(page.tempoOut.textContent, '66');
+
+  // Put the page back as the other tests expect it.
+  page.tempo.value = '120';
+  socket.receive({ type: 'hello', serverMs: Date.now(), songs: [BLUES, SONG1] });
+  page.song.value = 'song1';
+  await page.song.fire('change');
 });
 
 test('the server offers ways of writing solos, and a learned one is credited to its data', async () => {
@@ -109,10 +142,14 @@ test('pressing Start sends the performance to the server and gets the mixing con
   page.soloChoruses.value = '2';
   await page.start.fire('click');
 
-  assert.deepEqual(sentOfType('start'), [{ type: 'start', song: 'song1', soloComposer: 'rules', tempo: 140, soloChoruses: 2, ensemble: 'quartet' }]);
+  assert.deepEqual(sentOfType('start'), [{ type: 'start', song: 'song1', soloComposer: 'rules', feel: 'human', tempo: 140, soloChoruses: 2, ensemble: 'quartet' }]);
   assert.equal(page.stop.disabled, false);
   assert.equal(page.start.disabled, true);
   assert.ok(['SAX', 'PIANO', 'BASS', 'DRUMS'].every((i) => !part(i, 'mute').disabled));
+});
+
+test('while a performance runs the sound cannot be changed', () => {
+  assert.equal(page.sound.disabled, true);
 });
 
 test('the server\'s conversation appears in the log', () => {
@@ -122,6 +159,20 @@ test('the server\'s conversation appears in the log', () => {
     protocol: null, conversationId: 'tempo', summary: 'the tempo is 140 bpm', atMs: 2 });
   assert.equal(page.conversation.children.length, 2);
   assert.equal(page.conversation.children[1].dataset.part, 'assistant');
+});
+
+test('the robots react to the conversation: the speaker talks, the others listen, and shop talk stays quiet', () => {
+  socket.receive({ type: 'conversation', from: 's1-sax-musician', to: ['s1-piano-musician', 's1-bass-musician'], performative: 'REQUEST',
+    protocol: 'fipa-request', conversationId: 'accompany', summary: 'back me up in HEAD', atMs: 3 });
+  assert.ok(card('SAX').classList.contains('talking'));
+  assert.equal(part('SAX', 'bubble').textContent, 'Back me up!');
+  assert.ok(card('PIANO').classList.contains('listening'));
+  assert.ok(card('BASS').classList.contains('listening'));
+  assert.ok(!card('DRUMS').classList.contains('listening'));
+
+  socket.receive({ type: 'conversation', from: 's1-drums-composer', to: ['s1-drums-musician'], performative: 'INFORM',
+    protocol: null, conversationId: 'notes', summary: 'here are the notes', atMs: 4 });
+  assert.ok(!card('DRUMS').classList.contains('talking'));
 });
 
 test('as the band plays, the page shows where it is in the chart and what each musician is doing', async () => {
@@ -237,14 +288,64 @@ test('a start the server refuses puts the page back so it can be tried again', a
   assert.match(page.status.textContent, /tempo must be/);
 });
 
-test('Stop ends the performance and silences the band', async () => {
+test('Stop ends the performance, silences the band, and has a fresh one ready for the next start', async () => {
   await page.start.fire('click');
+  const downloads = tone.loads.length;
   await page.stop.fire('click');
+  await new Promise((resolve) => setTimeout(resolve, 30));
   assert.ok(sentOfType('stop').length >= 1);
   assert.equal(page.start.disabled, false);
   assert.equal(page.status.textContent, 'Stopped.');
-  // Whatever was still queued is thrown away with the instruments, so a late note finds nothing to play.
+  assert.equal(page.sound.disabled, false);
+  assert.equal(tone.loads.length, downloads, 'the new band was built from what was already loaded');
+  assert.match(page.soundStatus.textContent, /^Playing with recordings of the piano and bass/);
+
+  // A note still on its way from the server when Stop was pressed must not sound on the new band.
   calls.length = 0;
   socket.receive({ type: 'note', instrument: 'SAX', midi: 69, startMs: Date.now() + 100, durationMs: 400, velocity: 90 });
   assert.equal(calls.length, 0);
+});
+
+test('choosing the synthesizer rebuilds the band without downloading anything, and notes then play on synthesizer voices', async () => {
+  const downloads = tone.loads.length;
+  page.sound.value = 'synth';
+  await page.sound.fire('change');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(page.soundStatus.textContent, 'Playing with the synthesizer.');
+  assert.equal(tone.loads.length, downloads);
+
+  await page.start.fire('click');
+  calls.length = 0;
+  socket.receive({ type: 'note', instrument: 'SAX', midi: 69, startMs: Date.now() + 300, durationMs: 400, velocity: 90 });
+  socket.receive({ type: 'note', instrument: 'PIANO', midi: 64, startMs: Date.now() + 300, durationMs: 400, velocity: 90 });
+  assert.deepEqual(calls.map((call) => call.kind).sort(), ['MonoSynth', 'PolySynth']);
+  await page.stop.fire('click');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+});
+
+test('going back to the recordings needs no download, as they are already loaded', async () => {
+  const downloads = tone.loads.length;
+  page.sound.value = 'mixed';
+  await page.sound.fire('change');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.match(page.soundStatus.textContent, /^Playing with recordings of the piano and bass/);
+  assert.equal(tone.loads.length, downloads);
+});
+
+test('if the recordings cannot be loaded the page falls back to the synthesizer and says why, and still plays', async () => {
+  forgetLoadedSets();
+  badUrls.push('jsdelivr', 'data:audio');
+  page.sound.value = 'mixed';
+  await page.sound.fire('change');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.match(page.soundStatus.textContent, /^The recordings could not be loaded, so the band is using the synthesizer \(only 0 of/);
+
+  await page.start.fire('click');
+  assert.equal(page.start.disabled, true, 'the performance starts anyway');
+  calls.length = 0;
+  socket.receive({ type: 'note', instrument: 'BASS', midi: 41, startMs: Date.now() + 300, durationMs: 400, velocity: 90 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].kind, 'MonoSynth');
+  await page.stop.fire('click');
+  badUrls.length = 0;
 });

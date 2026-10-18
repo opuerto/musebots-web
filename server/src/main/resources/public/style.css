@@ -52,6 +52,10 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 button:disabled { opacity: .45; cursor: not-allowed; }
 
 .credit { margin: .25rem .25rem .5rem; max-width: 52rem; font-size: .85rem; line-height: 1.4; color: var(--muted); }
+.credits { margin-top: 1.25rem; }
+.credits summary { cursor: pointer; font-weight: 700; padding: .4rem 0; }
+.credits ul { margin: .25rem 0 0; padding-left: 1.2rem; font-size: .9rem; line-height: 1.5; }
+.credits a { color: var(--primary); }
 .status { min-height: 1.6rem; margin: .5rem .25rem; font-size: 1.15rem; font-weight: 600; }
 
 /* ---- the band ---- */
@@ -65,20 +69,112 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .card.absent { opacity: .3; filter: grayscale(1); pointer-events: none; }
 .card.playing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 6px 22px -8px var(--accent); }
 .card .art {
-  display: grid; place-items: center; height: 9.5rem; border-radius: 12px;
+  position: relative; display: grid; place-items: center; height: 11.5rem; border-radius: 12px;
   background: radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
 }
-.card .art img {
-  width: 8.2rem; height: 8.2rem;
-  transition: transform .08s ease-out, filter .08s ease-out;
-  transform: scale(1);
-  filter: drop-shadow(0 0 0 var(--accent));
+
+/* ---- the robots: each part is a class that moves only while the musician plays, speaks or listens ---- */
+.robot { width: 10.5rem; height: 10.5rem; overflow: visible; transition: filter .2s, opacity .25s; }
+.robot .shell { fill: #dfe5ec; stroke: #53606f; stroke-width: 2.5; }
+.robot .shell.body { fill: var(--accent); stroke: color-mix(in srgb, var(--accent) 55%, #000); }
+.robot .visor { fill: #1c2633; }
+.robot .eye { fill: #7ff3ff; transform-box: fill-box; transform-origin: center; animation: blink 4.2s infinite; }
+.robot .grille { stroke: #7f8b99; stroke-width: 2; stroke-linecap: round; }
+.robot .ear { fill: #9aa6b4; }
+.robot .antenna { stroke: #53606f; stroke-width: 3; }
+.robot .bulb { fill: #8a97a6; stroke: #53606f; stroke-width: 2; }
+.robot .chest { fill: #1c2633; stroke: #e9f6ff; stroke-width: 2; }
+.robot .belt { fill: color-mix(in srgb, var(--accent) 55%, #000); }
+.robot .limb { fill: none; stroke: #6b7886; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
+.robot .limb-fill { fill: #6b7886; }
+.robot .joint { fill: #dfe5ec; }
+.robot .hand { fill: #dfe5ec; stroke: #53606f; stroke-width: 2; }
+.robot .bob { transform-box: fill-box; transform-origin: 50% 100%; }
+
+/* instruments */
+.robot .tube, .robot .mouthpiece { fill: none; stroke: #8a5a00; stroke-width: 11; stroke-linecap: round; }
+.robot .mouthpiece { stroke: #2a2a2a; stroke-width: 6; }
+.robot .bell { fill: #f0bd3a; stroke: #8a5a00; stroke-width: 3; }
+.robot .key { fill: #fde7a3; stroke: #8a5a00; stroke-width: 2; }
+.robot .prop.sax .tube { stroke: #f0bd3a; paint-order: stroke; filter: drop-shadow(0 0 0 #8a5a00); }
+.robot .case { fill: #2b2f36; }
+.robot .white { fill: #fbfbf8; stroke: #8b8f96; stroke-width: 1.5; }
+.robot .black { fill: #20232a; }
+.robot .neck { fill: #3b2410; }
+.robot .scroll { fill: none; stroke: #3b2410; stroke-width: 6; stroke-linecap: round; }
+.robot .belly { fill: #b4672a; stroke: #5a2f0c; stroke-width: 3; }
+.robot .hole { fill: #3b2410; }
+.robot .string { stroke: #f3e6c7; stroke-width: 1.4; transform-box: fill-box; transform-origin: 50% 0; }
+.robot .stand { stroke: #6b7886; stroke-width: 3; }
+.robot .cymbal { fill: #e8c14b; stroke: #8a6d12; stroke-width: 2; transform-box: fill-box; transform-origin: center; }
+.robot .drum { fill: #f2f2ee; stroke: #53606f; stroke-width: 2.5; }
+.robot .drum-side { fill: var(--accent); stroke: #53606f; stroke-width: 2; }
+.robot .drum.kick { fill: var(--accent); }
+.robot .stick { stroke: #e9d3a3; stroke-width: 3.5; stroke-linecap: round; }
+
+/* waiting: breathing, blinking */
+.card .robot .bob { animation: breathe 3.4s ease-in-out infinite; }
+.card.muted .robot { opacity: .4; filter: grayscale(1); }
+.card.muted .robot .bob, .card.muted .robot .eye { animation: none; }
+
+/* playing: the whole robot sways with the music, and the arms and instrument move */
+.card.playing .robot { filter: drop-shadow(0 0 calc(var(--level) * 10px) var(--accent)); }
+.card.playing .robot .bob { animation: sway .9s ease-in-out infinite; }
+.card.playing .robot .eye { animation: none; fill: #b8ffd0; }
+.card.playing .robot .chest { fill: var(--accent); }
+.card.playing .robot .arm.left { animation: play-left .45s ease-in-out infinite alternate; }
+.card.playing .robot .arm.right { animation: play-right .45s ease-in-out .22s infinite alternate; }
+.card.playing .robot .key { animation: key .45s steps(2) infinite; }
+.card.playing .robot .key.k2 { animation-delay: .15s; }
+.card.playing .robot .key.k3 { animation-delay: .3s; }
+.card.playing .robot .white:nth-child(odd) { animation: press .45s steps(2) infinite; }
+.card.playing .robot .white:nth-child(even) { animation: press .45s steps(2) .22s infinite; }
+.card.playing .robot .string { animation: pluck .12s linear infinite alternate; }
+.card.playing .robot .prop.sax { animation: sax-sway 1.8s ease-in-out infinite; transform-origin: 128px 74px; }
+.card.playing .robot.drums .arm.left { animation: hit-left .22s ease-in infinite alternate; }
+.card.playing .robot.drums .arm.right { animation: hit-right .22s ease-in .11s infinite alternate; }
+.card.playing .robot .cymbal { animation: shimmer .25s linear infinite alternate; }
+.card.playing .robot.piano .arm.left, .card.playing .robot.piano .arm.right { animation-duration: .6s; }
+.card.playing .robot.bass .arm.left { animation: none; }
+.card.playing .robot.bass .arm.right { animation: pluck-arm .5s ease-in-out infinite alternate; }
+
+/* talking: the antenna bulb blinks and a speech bubble appears; listening: head tilts toward the speaker, eyes widen */
+.card.talking .robot .bulb { animation: signal .35s steps(2) infinite; }
+.card.talking .robot .mouth { animation: chatter .25s steps(2) infinite; transform-box: fill-box; transform-origin: center; }
+.card.listening .robot .head { animation: tilt .5s ease-out forwards; transform-origin: 100px 88px; }
+.card.listening .robot .eye { animation: none; transform: scale(1.25); fill: #ffe98a; }
+.card.listening .robot .ear { fill: #ffe98a; }
+.bubble {
+  position: absolute; z-index: 1; top: -.15rem; left: 50%; max-width: 12rem; transform: translateX(-50%); margin: 0;
+  padding: .25rem .6rem; border-radius: 12px; background: #fff; color: #1b1f24; font-size: .8rem; font-weight: 700;
+  line-height: 1.2; text-align: center; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); border: 2px solid var(--accent);
 }
-.card.playing .art img {
-  transform: scale(calc(1 + var(--level) * .09));
-  filter: drop-shadow(0 0 calc(var(--level) * 14px) var(--accent));
+.bubble::after {
+  content: ''; position: absolute; left: 50%; bottom: -.55rem; width: .6rem; height: .6rem; transform: translateX(-50%) rotate(45deg);
+  background: #fff; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
 }
-.card.muted .art img { opacity: .35; filter: grayscale(1); }
+.bubble[hidden] { display: none; }
+
+@keyframes breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.015); } }
+@keyframes sway { 0%, 100% { transform: rotate(-1.8deg) translateY(0); } 50% { transform: rotate(1.8deg) translateY(-2px); } }
+@keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
+@keyframes play-left { from { transform: rotate(-4deg); } to { transform: rotate(5deg); } }
+@keyframes play-right { from { transform: rotate(4deg); } to { transform: rotate(-5deg); } }
+@keyframes hit-left { from { transform: rotate(-16deg); } to { transform: rotate(8deg); } }
+@keyframes hit-right { from { transform: rotate(16deg); } to { transform: rotate(-8deg); } }
+@keyframes pluck-arm { from { transform: rotate(-9deg); } to { transform: rotate(9deg); } }
+@keyframes key { 0% { fill: #fde7a3; } 100% { fill: #ffffff; } }
+@keyframes press { 0% { fill: #fbfbf8; } 100% { fill: color-mix(in srgb, var(--accent) 45%, #fff); } }
+@keyframes pluck { from { transform: scaleX(1); } to { transform: scaleX(1.0) translateX(1.3px); } }
+@keyframes shimmer { from { transform: scale(1); } to { transform: scale(1.06, .8); } }
+@keyframes sax-sway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes signal { 0% { fill: #8a97a6; } 100% { fill: #ffd447; } }
+@keyframes chatter { from { transform: scaleY(1); } to { transform: scaleY(1.5); } }
+@keyframes tilt { to { transform: rotate(7deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .card .robot *, .card.playing .robot *, .card.talking .robot *, .card.listening .robot * { animation: none !important; }
+}
 .card .name { margin: .1rem 0 0; font-size: 1.1rem; }
 .role { margin: 0; align-self: flex-start; padding: .1rem .55rem; border-radius: 999px; font-size: .8rem; font-weight: 600; background: var(--badge); color: var(--muted); }
 .role.leading { background: var(--accent); color: #fff; }

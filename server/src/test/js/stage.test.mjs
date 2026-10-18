@@ -15,11 +15,49 @@ const card = (instrument) => cards().find((c) => c.dataset.instrument === instru
 const part = (instrument, className) => findAll(card(instrument), withClass(className))[0];
 const playing = { role: { text: 'Soloing', kind: 'leading' }, notes: 'A4 · C5', level: 0.8 };
 
-test('a card for each musician, in stage order, each with its picture', () => {
+test('a card for each musician, in stage order, each with its own robot', () => {
   assert.deepEqual(cards().map((c) => c.dataset.instrument), ['SAX', 'PIANO', 'BASS', 'DRUMS']);
-  const pictures = findAll(elements.stage, (node) => node.tag === 'img');
-  assert.deepEqual(pictures.map((p) => p.src), ['assets/sax.svg', 'assets/piano.svg', 'assets/bass.svg', 'assets/drums.svg']);
-  assert.ok(pictures.every((p) => p.alt));
+  const robots = findAll(elements.stage, (node) => node.tag === 'svg');
+  assert.deepEqual(robots.map((r) => r.attributes.class), ['robot sax', 'robot piano', 'robot bass', 'robot drums']);
+  assert.ok(robots.every((r) => r.attributes['aria-label']));
+});
+
+test('every robot has a head with eyes and an antenna bulb, two arms, and the instrument it plays', () => {
+  const expectedProp = { SAX: 'prop sax', PIANO: 'prop piano', BASS: 'prop bass', DRUMS: 'prop kit' };
+  for (const instrument of ['SAX', 'PIANO', 'BASS', 'DRUMS']) {
+    const has = (name) => findAll(card(instrument), (n) => (n.attributes.class ?? '').split(' ').includes(name));
+    assert.equal(has('head').length, 1, `${instrument} head`);
+    assert.equal(has('eye').length, 2, `${instrument} eyes`);
+    assert.equal(has('bulb').length, 1, `${instrument} bulb`);
+    assert.equal(has('arm').length, 2, `${instrument} arms`);
+    assert.ok(findAll(card(instrument), (n) => n.attributes.class === expectedProp[instrument]).length === 1, `${instrument} prop`);
+  }
+});
+
+test('a robot speaks in a bubble for a moment, then falls quiet', async () => {
+  stage.say('PIANO', 'Your turn!', 20);
+  assert.ok(card('PIANO').classList.contains('talking'));
+  assert.equal(part('PIANO', 'bubble').textContent, 'Your turn!');
+  assert.equal(part('PIANO', 'bubble').hidden, false);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.ok(!card('PIANO').classList.contains('talking'));
+  assert.equal(part('PIANO', 'bubble').hidden, true);
+});
+
+test('a robot that is addressed listens, and stops after a moment', async () => {
+  stage.listen('BASS', 20);
+  assert.ok(card('BASS').classList.contains('listening'));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.ok(!card('BASS').classList.contains('listening'));
+});
+
+test('a new performance silences the robots', () => {
+  stage.say('SAX', 'Hello');
+  stage.listen('DRUMS');
+  stage.reset();
+  assert.ok(!card('SAX').classList.contains('talking'));
+  assert.ok(!card('DRUMS').classList.contains('listening'));
+  assert.equal(part('SAX', 'bubble').hidden, true);
 });
 
 test('each card begins waiting, with the mix controls off until there is a performance', () => {

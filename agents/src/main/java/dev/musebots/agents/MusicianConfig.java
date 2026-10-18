@@ -22,9 +22,12 @@ public record MusicianConfig(
         int ensembleSize,
         long leadInMs,
         /** How long before a part ends the leader starts arranging the next one. */
-        long planAheadMs) {
+        long planAheadMs,
+        /** Between equal intro offers the leader picks whoever is listed first. */
+        List<Instrument> introPreference) {
 
     public MusicianConfig {
         soloOrder = List.copyOf(soloOrder);
+        introPreference = List.copyOf(introPreference);
     }
 }

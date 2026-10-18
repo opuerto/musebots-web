@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Musebot Agents by Oscar Puerto</title>
-  <link rel="icon" href="assets/sax.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -46,6 +46,18 @@
           <option value="rules" selected>Rules (hand-written)</option>
         </select>
       </label>
+      <label>Sound
+        <select id="sound">
+          <option value="mixed" selected>Piano and bass recordings, synthesized sax and drums</option>
+          <option value="synth">Synthesizer</option>
+        </select>
+      </label>
+      <label>Feel
+        <select id="feel">
+          <option value="human" selected>Human</option>
+          <option value="mechanical">Mechanical (as written)</option>
+        </select>
+      </label>
       <label>Tempo <input id="tempo" type="range" min="60" max="200" value="120"> <output id="tempoOut">120</output> bpm</label>
       <label>Solo choruses <input id="soloChoruses" type="number" min="1" max="2" value="1"></label>
       <div class="buttons">
@@ -54,6 +66,7 @@
       </div>
     </section>
 
+    <p id="soundStatus" class="credit">Loading the piano and bass recordings…</p>
     <p id="credit" class="credit" hidden></p>
 
     <p id="status" class="status now">Connecting…</p>
@@ -69,6 +82,21 @@
       <p id="caption" class="caption"></p>
       <p id="where" class="where"></p>
     </section>
+
+    <details class="credits">
+      <summary>Sound credits</summary>
+      <p class="hint">The piano and the bass are recordings shared under open licences, played with
+        <a href="https://tonejs.github.io/" target="_blank" rel="noopener noreferrer">Tone.js</a> (MIT licence), which also provides the effects
+        (compression, equalisation, reverb, limiter). The sax and the drums are synthesized.</p>
+      <ul>
+        <li><strong>Piano:</strong> Salamander Grand Piano V2 (Yamaha C5) by Alexander Holm, from the
+          <a href="https://github.com/Tonejs/audio/tree/master/salamander" target="_blank" rel="noopener noreferrer">Tone.js audio collection</a>.
+          <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener noreferrer">CC BY 3.0</a>.</li>
+        <li><strong>Acoustic bass:</strong> the FluidR3 GM soundfont, as converted by
+          <a href="https://github.com/gleitz/midi-js-soundfonts" target="_blank" rel="noopener noreferrer">midi-js-soundfonts</a>.
+          <a href="https://creativecommons.org/licenses/by/3.0/us/" target="_blank" rel="noopener noreferrer">CC BY 3.0</a>.</li>
+      </ul>
+    </details>
 
     <details class="log">
       <summary>What the musicians say to each other</summary>

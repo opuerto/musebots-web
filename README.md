@@ -22,15 +22,23 @@ node --test server/src/test/js/*.test.mjs   # just the browser tests
 
 ## The page
 
-- **The band on stage:** a card per musician with its picture (`public/assets/*.svg`, plain SVG files you can replace
-  with your own artwork), what it is doing (leading, accompanying, playing softly, sitting out), the names of the notes
-  sounding right now, and its volume and mute.
+- **The band on stage:** a robot per musician, drawn in SVG by `robots.js` (a sax robot, a piano robot, a bass robot and a
+  drummer robot). While a robot is playing, its arms, keys, strings or sticks move and it sways with the music; when it is
+  addressed it turns to listen, and when it speaks its antenna blinks and a speech bubble shows what it says
+  ("Your turn!", "Back me up!", "I will play the intro!"), worked out from the agents' messages by `reactions.js`. Each card also
+  shows what the musician is doing (leading, accompanying, playing softly, sitting out), the names of the notes
+  sounding right now, and its volume and mute. The animation is plain CSS and stops for people who prefer reduced motion.
 - **The chord chart,** laid out like a lead sheet: a row per section (A, A, B) with a chord in each bar. The section being
   played is highlighted, and so is the bar, which fills as it goes by. Above it is where the band is
   ("Piano solo · First chorus (AAB)"), and below it a plain-English caption of what is happening, such as who handed the
   lead to whom.
-- **Two tunes:** *Blues in F* (12 bars, written as three lines) and *Song 1* (10 bars in AAB form). The chart of the chosen tune
-  is shown before you press Start.
+- **Eight tunes** in `Songs`, each with the style it is played in and a tempo that suits it (choosing a tune moves the tempo
+  slider there): *Blues in F*, *Song 1* (AAB), a *minor blues* in C, a *bebop blues* in Bb at 190 bpm, *rhythm changes* (32 bars, AABA),
+  *leaves changes* (a ii-V-I tune in G minor, AAB), a slow *ballad* in Eb at 66 bpm and a *modal* tune (AABA, eight bars on one chord).
+  The charts are only chord changes, and only the three chord qualities the composers know (major 7, dominant 7, minor 7) are used, so
+  a minor ii-V uses a plain minor 7 where a lead sheet would write half-diminished. The feel follows the tempo (slow tunes swing
+  hard, fast ones less), but there is no separate bossa or waltz feel: everything is in 4/4. The chart of the
+  chosen tune is shown before you press Start.
 - **How it knows where the band is:** the server announces each part of the tune (`segment`: when it starts and ends, who
   leads it, and the tempo it was arranged at) and the tune itself (`song`). The page works out the section and bar from
   those and the clock it synced with the server, so the display stays in time with the sound. See `timeline.js`.
@@ -57,11 +65,18 @@ node --test server/src/test/js/*.test.mjs   # just the browser tests
 
 3. **The tune.** The opening leader waits for the ensemble (directory lookup), shares the song, then runs a
    **FIPA Contract Net** for the intro: every accompanist proposes, the leader accepts the shortest offer
-   (ties go to piano, then bass, then drums) and rejects the rest. Then:
+   (every accompanist offers the same length, so the tie is broken by a preference order that is shuffled for each performance)
+   and rejects the rest. Then:
 
    ```
    intro (4 bars) -> head (1 chorus) -> a solo chorus for each musician, in turn -> ending (1 bar)
    ```
+
+   **Random turns.** By default each performance shuffles the turns (`SessionConfig.TurnOrder.RANDOM`): any melodic player (sax,
+   piano or bass; a drummer cannot play a head) may open the tune and play the head, the solos go in a shuffled order
+   (everyone still solos once, so the leader may solo last) and the intro goes to whoever the shuffled preference favours. The start message
+   can ask for the old fixed order with `"order":"fixed"` (sax leads, then piano, bass and drums; piano wins the intro tie).
+   The session's `seed` makes a shuffle reproducible.
 
 4. **Passing the lead.** The leader arranges each part shortly before the previous one ends (`planAheadMs`).
    It records the part on its synchronizer's timeline, asks its composer to write its own part, and asks the
@@ -150,7 +165,7 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 
 | Direction | Message |
 |---|---|
-| client to server | `{"type":"start","song":"blues","tempo":120,"soloChoruses":1,"ensemble":"quartet"}`, `{"type":"stop"}`, `{"type":"time.sync","t0":...}` |
+| client to server | `{"type":"start","song":"blues","tempo":120,"soloChoruses":1,"ensemble":"quartet","feel":"human","order":"random"}`, `{"type":"stop"}`, `{"type":"time.sync","t0":...}` |
 | client to server | `{"type":"conduct","command":"tempo","value":140}`, `{"type":"conduct","command":"volume","instrument":"bass","value":0.7}`, `{"type":"conduct","command":"mute","instrument":"sax"}` (and `unmute`) |
 | server to client | `hello` (with the tunes on offer), `time.sync`, `song` (the chart of the tune about to be played), `segment` (a part of the tune: intro, head, a solo or the ending), `note`, `conversation`, `status` (`ENSEMBLE_READY`, `FINISHED`, `FAILED`), `error` (with a `source` of `start`, `conduct` or `message`) |
 
@@ -166,6 +181,65 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 | Composer agent (jMusic) | `ComposerAgent` and `PhraseComposer` in `core` (no jMusic: only note data is needed) |
 | Ensemble Assistant agent | `EnsembleAssistantAgent` |
 | Musebot Conductor (Max patch, OSC) | The web page, the server's `conduct` messages, and `ConductorAgent` as the gateway into the agents |
+
+## How it sounds
+
+Three layers sit between the notes the agents write and what you hear: instrument sounds, audio effects, and a human feel added to the
+timing and dynamics. A **Sound** menu and a **Feel** menu (human, or mechanical as written) let you compare, since the point is to judge by ear.
+
+**Sound** has two settings. The default is **piano and bass recordings, synthesized sax and drums**; the other is the **synthesizer** for everything.
+That is the result of listening: the Salamander piano recording and the FluidR3 bass recording were judged better than their synthesized versions,
+but a recorded saxophone (it sounded like a flute) and a recorded kick and crash with the synthesized kit (the drums sounded like noise) were judged clearly
+worse than the synthesizer, so they were taken out rather than left as an option.
+
+### Recordings
+
+Played by Tone.js samplers, which shift the pitch of the nearest recording to reach every note. Both are CC BY 3.0 and are credited on the page.
+
+| Instrument | Recording | Where from |
+|---|---|---|
+| Piano | Salamander Grand Piano V2 (Yamaha C5), 30 notes | Alexander Holm, via the Tone.js audio collection |
+| Acoustic bass | FluidR3 GM soundfont, plucked, the notes the bass plays | midi-js-soundfonts |
+| Sax, drums | **synthesized** | |
+
+What was checked, with the real files, before relying on them (`server/src/main/resources/public/sampleSets.js`): every file decodes, and the pitch of each set
+measured against its note names is within about 7 cents. They load from jsDelivr, **pinned to a commit** so an upstream change cannot alter the sound, and
+are cached by the browser for a year (about 4 MB the first time). They load one file at a time, so a missing file costs a note, not an instrument; a recording
+with too few files falls back to the synthesizer, and the page says so.
+
+Other sources were looked at and not used: WebAudioFont is GPL-3, and the acoustic drum kit in the Tone.js repository comes from a repository with no licence.
+Finding a recorded sax and drum kit that sound better than the synthesizer would be a real improvement; the ones tried did not.
+
+### Effects (`mixer.js`)
+
+Each instrument has a channel: high-pass filter (bass), three-band EQ, compression, stereo position (piano left, sax right, bass and drums centre),
+and a send to one shared room reverb. Everything goes through a master compressor, a limiter and a **soft clipper**, which leaves normal levels alone
+and guarantees nothing exceeds -0.4 dBFS (the limiter alone let the synthesizer peak at +0.8 dBFS).
+
+The channel levels were set by rendering each instrument with the real code and measuring its loudness: a recording and a synthesizer voice come out at very
+different levels (the bass recording is far quieter than the piano recording). Over a run of music the sax is at -21.5 dBFS RMS, bass -23.0, piano -25.2 and drums
+-27.5, the whole band -17.7. A recording of the page's actual output over a live performance had no clipped samples and no silence apart from the lead-in.
+
+### Human feel (`Humanizer`, in `core`)
+
+Composers write notes exactly on the grid at one volume. `Humanizer` makes them sound played, using arithmetic and a seeded random generator
+(the same seed gives the same performance); it never adds, removes or retunes a note:
+
+- **Swing follows the tempo.** The long note of an eighth-note pair is about 3:1 up to 100 bpm, falling to 2:1 at 200 and straight at 300, as real
+  players do (after Friberg and Sundstrom, 2002; an approximation of their findings, not their data).
+- **Each instrument has its own feel,** in milliseconds from the beat: the bass about 6 ahead, the piano 6 behind, a soloing sax 9 behind, the drums
+  on it, each wandering 4 to 9 ms. Notes that start together move together; a piano chord rolls upward by 5 ms a voice. The ending is played tightly.
+- **Dynamics:** each note varies by a few velocity points, and a horn's phrases swell in the middle of four bars and soften at the ends.
+- **Note lengths** vary a little. A single line stays a single line (no overlaps, never reordered), and nothing runs past the end of its phrase.
+
+It is applied by the composer agents when `feel` is `human` (the default), and not at all when it is `mechanical`, which is what the tests that check
+exact timings use.
+
+### What this does not tell you
+
+The checks above are objective (it decodes, it is in tune, it is balanced, it does not clip, it stays in time and in order). Whether it sounds good is a
+judgement by ear, and it was the listening, not the measurements, that removed the recorded sax and drums. The feel offsets and effect settings are
+starting points to adjust.
 
 ## Learning solos from real jazz
 
@@ -255,7 +329,7 @@ a copy rate far above the real solos'.
 
 - More Conductor commands from the original platform, and speaking its OSC messages so Musebots from other developers can take part
 - A tempo change heard sooner than the next part of the tune (parts are a chorus long)
-- Choosing who solos, or how many choruses each, from the UI; trading fours; a final head; dynamics that follow the soloist
+- Choosing the turns (who opens, who solos when) from the UI, or how many choruses each; trading fours; a final head; dynamics that follow the soloist
 - A neural solo model, a listening test, and solos that react to what the others are playing (the learning tools measure against a baseline; none of that is built)
-- Better instrument sounds (the sax, piano and drums are Tone.js synthesis for now; SoundFonts or samples would sound more real)
+- A recorded sax and drum kit that sound better than the synthesizer (the ones tried did not); velocity layers for the bass
 - Letting third-party Musebots join over the network

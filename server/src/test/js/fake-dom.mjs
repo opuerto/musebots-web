@@ -68,9 +68,12 @@ export function installDocument() {
   elements.song.value = 'blues';
   elements.ensemble.value = 'quartet';
   elements.soloComposer.value = 'rules';
+  elements.sound.value = 'mixed';
+  elements.feel.value = 'human';
   globalThis.document = {
     getElementById: (id) => elements[id],
     createElement: (tag) => new FakeElement(tag),
+    createElementNS: (namespace, tag) => new FakeElement(tag),
   };
   return elements;
 }

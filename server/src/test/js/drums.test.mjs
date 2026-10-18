@@ -14,10 +14,11 @@ function hit(midi, velocity = 90) {
   return calls;
 }
 
-test('every piece the server can write makes exactly one sound', () => {
+test('every piece the server can write makes a sound, and a snare is two layers', () => {
   for (const midi of DRUM_PIECES) {
-    assert.equal(hit(midi).length, 1, `piece ${midi}`);
+    assert.equal(hit(midi).length, midi === 38 ? 2 : 1, `piece ${midi}`);
   }
+  assert.deepEqual(hit(38).map((call) => call.kind).sort(), ['MembraneSynth', 'NoiseSynth'], 'the rattle of the snares and the body of the drum');
 });
 
 test('every hit fires at the requested time with a normalised velocity and a short duration', () => {
@@ -27,6 +28,26 @@ test('every hit fires at the requested time with a normalised velocity and a sho
     assert.equal(call.velocity, 1, `piece ${midi} velocity`);
     assert.ok(call.duration > 0 && call.duration <= 1, `piece ${midi} duration ${call.duration}`);
   }
+});
+
+test('the kit sends everything to the channel it is given, and to the speakers if it is given none', () => {
+  const direct = makeFakeTone([]);
+  buildDrumKit(direct);
+  assert.ok(direct.created.filter((node) => !node.options?.noise).every((node) => node.toSpeakers || node.targets.length), 'every voice goes somewhere');
+  assert.ok(direct.created.some((node) => node.toSpeakers));
+
+  const routed = makeFakeTone([]);
+  const out = new (class Channel { constructor() { this.reached = 0; } reachesSpeakers() { this.reached += 1; return true; } })();
+  buildDrumKit(routed, { out });
+  const voices = routed.created.filter((node) => node.targets.includes(out));
+  assert.ok(voices.length >= 6, `kick, toms, snare, ride, hat and crash all feed the channel (${voices.length})`);
+  assert.ok(routed.created.every((node) => !node.toSpeakers), 'nothing bypasses the mixer');
+});
+
+test('disposing the kit disposes every voice', () => {
+  const tone = makeFakeTone([]);
+  buildDrumKit(tone).dispose();
+  assert.ok(tone.created.every((node) => node.disposed));
 });
 
 test('cymbals are given a frequency, not a duration, as their note', () => {

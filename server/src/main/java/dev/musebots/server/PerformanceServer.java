@@ -1,6 +1,7 @@
 package dev.musebots.server;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.musebots.agents.ComposerFactory;
 import dev.musebots.agents.EnsembleRuntime;
 import dev.musebots.agents.Performance;
 import dev.musebots.agents.Protocol;
@@ -25,10 +26,14 @@ import java.util.concurrent.Executors;
  * Serves the web client and runs one performance per browser connection.
  *
  * <p>Protocol (JSON over WebSocket at {@code /ws}). Client to server: {@code time.sync}, {@code start}
- * (tempo, soloChoruses, ensemble = quartet or duo, song = blues or song1, soloComposer = rules or markov when a model is loaded), {@code stop}, and {@code conduct}
+ * (tempo, soloChoruses, ensemble = quartet or duo, song = blues or song1, soloComposer = rules or markov when a model is loaded, feel = human or mechanical), {@code stop}, and {@code conduct}
  * (command = tempo, volume, mute or unmute; instrument; value). Server to client: see {@link Wire}.
  */
 public final class PerformanceServer implements AutoCloseable {
+
+    /** The band plays with a human feel (timing, dynamics, tempo-dependent swing), or exactly as written. */
+    static final String FEEL_HUMAN = "human";
+    static final String FEEL_MECHANICAL = "mechanical";
 
     /** Volume is a multiplier: 1 is as written, above 1 is louder (velocities are capped at the MIDI maximum). */
     private static final double MAX_VOLUME = 1.5;
@@ -100,7 +105,7 @@ public final class PerformanceServer implements AutoCloseable {
         String songId = message.path("song").asText(Songs.BLUES);
         SongStructure song = Songs.byId(songId, tempo);
         if (song == null) {
-            ctx.send(Wire.error("start", "song must be '" + Songs.BLUES + "' or '" + Songs.SONG_1 + "'"));
+            ctx.send(Wire.error("start", "song must be one of " + String.join(", ", Songs.IDS)));
             return;
         }
         String soloId = message.path("soloComposer").asText(soloOptions.get(0).id());
@@ -109,6 +114,17 @@ public final class PerformanceServer implements AutoCloseable {
             ctx.send(Wire.error("start", "soloComposer must be one of " + String.join(", ", soloOptions.stream().map(SoloOption::id).toList())));
             return;
         }
+        String feel = message.path("feel").asText(FEEL_HUMAN);
+        if (!feel.equals(FEEL_HUMAN) && !feel.equals(FEEL_MECHANICAL)) {
+            ctx.send(Wire.error("start", "feel must be '" + FEEL_HUMAN + "' or '" + FEEL_MECHANICAL + "'"));
+            return;
+        }
+        String order = message.path("order").asText("random");
+        if (!order.equals("random") && !order.equals("fixed")) {
+            ctx.send(Wire.error("start", "order must be 'random' or 'fixed'"));
+            return;
+        }
+        SessionConfig.TurnOrder turnOrder = order.equals("fixed") ? SessionConfig.TurnOrder.FIXED : SessionConfig.TurnOrder.RANDOM;
         String ensemble = message.path("ensemble").asText("quartet");
         if (!ensemble.equals("quartet") && !ensemble.equals("duo")) {
             ctx.send(Wire.error("start", "ensemble must be 'quartet' or 'duo'"));
@@ -129,10 +145,11 @@ public final class PerformanceServer implements AutoCloseable {
             }
         };
         SessionConfig session = ensemble.equals("duo")
-                ? SessionConfig.duo(sessionId, song, soloChoruses)
-                : SessionConfig.quartet(sessionId, song, soloChoruses);
+                ? SessionConfig.duo(sessionId, song, soloChoruses, turnOrder)
+                : SessionConfig.quartet(sessionId, song, soloChoruses, turnOrder);
         toBrowser.send(Wire.song(songId, song)); // before the band starts, so the chart is ready for the first note
-        running.put(ctx.sessionId(), runtime.perform(session, sink, soloOption.composers()));
+        ComposerFactory composers = feel.equals(FEEL_HUMAN) ? ComposerFactory.humanized(soloOption.composers()) : soloOption.composers();
+        running.put(ctx.sessionId(), runtime.perform(session, sink, composers));
     }
 
     /** Passes a Conductor command (tempo, volume, mute, unmute) to the performance this browser started. */

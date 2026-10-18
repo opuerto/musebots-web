@@ -35,20 +35,17 @@ final class Leading {
     private static final long PROPOSAL_TIMEOUT_MS = 2_000;
     private static final long FINISH_GRACE_MS = 300;
 
-    /** Shorter intros win; between equal offers, the leader prefers whoever is listed first. */
-    private static final List<Instrument> INTRO_PREFERENCE =
-            List.of(Instrument.PIANO, Instrument.BASS, Instrument.DRUMS, Instrument.SAX);
-    private static final Comparator<Protocol.IntroProposal> INTRO_ORDER =
-            Comparator.comparingInt(Protocol.IntroProposal::bars)
-                    .thenComparingInt(proposal -> INTRO_PREFERENCE.indexOf(proposal.instrument()));
-
     private final MusicianAgent agent;
     private final MusicianConfig config;
+    /** Shorter intros win; between equal offers, the leader prefers whoever the session lists first. */
+    private final Comparator<Protocol.IntroProposal> introOrder;
     private List<AID> peers = List.of();
 
     Leading(MusicianAgent agent) {
         this.agent = agent;
         this.config = agent.config();
+        this.introOrder = Comparator.comparingInt(Protocol.IntroProposal::bars)
+                .thenComparingInt(proposal -> config.introPreference().indexOf(proposal.instrument()));
     }
 
     // ---- The opening: assemble, share the song, negotiate the intro ----
@@ -245,7 +242,7 @@ final class Leading {
                 ACLMessage reply = (ACLMessage) response;
                 if (reply.getPerformative() == ACLMessage.PROPOSE) {
                     Protocol.IntroProposal proposal = Json.read(reply.getContent(), Protocol.IntroProposal.class);
-                    if (bestProposal == null || INTRO_ORDER.compare(proposal, bestProposal) < 0) {
+                    if (bestProposal == null || introOrder.compare(proposal, bestProposal) < 0) {
                         best = reply;
                         bestProposal = proposal;
                     }

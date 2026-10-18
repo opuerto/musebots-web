@@ -230,6 +230,42 @@ class EnsembleRuntimeTest {
     }
 
     @Test
+    void aBandPlayingWithAHumanFeelStillPlaysTheWholeTuneInOrder() throws InterruptedException {
+        Recorder recorder = new Recorder();
+        Performance performance = runtime.perform(session("human", Instrument.PIANO, List.of(Instrument.BASS)), recorder,
+                ComposerFactory.humanized(ComposerFactory.rules()));
+        try {
+            assertTrue(recorder.done.await(60, TimeUnit.SECONDS), "performance did not finish");
+        } finally {
+            performance.stop();
+        }
+        recorder.assertFinished();
+
+        // The structure is the leader's, so a human feel does not touch it.
+        assertEquals(List.of("The head", "piano solo", "bass solo", "The ending"), recorder.sectionLabels());
+        long head = recorder.sectionStart("The head");
+        assertEquals(head + CHORUS_MS, recorder.sectionStart("piano solo"));
+
+        // The notes are no longer exactly on the grid, but only a little off it. The bass leans ahead of the beat, so the first
+        // note of the next part can start a few milliseconds inside this one: count from 30 ms before the head to 30 ms before the end.
+        List<NoteEvent> bass = recorder.notes(Instrument.BASS, head - 30, head + CHORUS_MS - 30);
+        List<Long> offGrid = bass.stream().map(n -> {
+            long offset = n.startMs() - head;
+            return offset - Math.round(Math.round(offset / 62.5) * 62.5); // 960 bpm: a beat is exactly 62.5 ms
+        }).toList();
+        assertTrue(offGrid.stream().anyMatch(offset -> Math.abs(offset) > 2), "expected some wander from the grid");
+        assertTrue(offGrid.stream().allMatch(offset -> Math.abs(offset) <= 26), "but only a little: " + offGrid);
+        assertTrue(offGrid.stream().mapToLong(Long::longValue).average().orElse(0) < 0, "the bass leans ahead of the beat");
+        // Nothing is lost or invented: the bass walks four notes a bar for twelve bars, and still ends together with the piano.
+        assertEquals(48, bass.size());
+        long ending = recorder.sectionStart("The ending");
+        for (Instrument instrument : List.of(Instrument.PIANO, Instrument.BASS)) {
+            List<NoteEvent> last = recorder.notes(instrument, ending - 30, ending + BAR_MS);
+            assertTrue(last.stream().anyMatch(n -> Math.abs(n.startMs() - ending) <= 26), instrument + " should land on the ending together");
+        }
+    }
+
+    @Test
     void aTenBarTuneInAABFormPlaysThroughToo() throws InterruptedException {
         SongStructure tune = Songs.song1(FAST_TEMPO);
         long chorus = 10 * BAR_MS;

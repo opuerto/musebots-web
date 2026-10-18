@@ -1,6 +1,8 @@
 package dev.musebots.agents;
 
 import dev.musebots.core.Composers;
+import dev.musebots.core.HumanizedComposer;
+import dev.musebots.core.Humanizer;
 import dev.musebots.core.Instrument;
 import dev.musebots.core.PhraseComposer;
 import java.util.random.RandomGenerator;
@@ -17,5 +19,10 @@ public interface ComposerFactory {
     /** The band's hand-written rules. */
     static ComposerFactory rules() {
         return Composers::defaultFor;
+    }
+
+    /** Whatever {@code base} composes, played with a human feel ({@link Humanizer}) instead of exactly as written. */
+    static ComposerFactory humanized(ComposerFactory base) {
+        return (instrument, random) -> new HumanizedComposer(base.create(instrument, random), Humanizer.standard(), random);
     }
 }

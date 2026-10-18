@@ -127,23 +127,19 @@ class PerformanceServerTest {
             }
         }
         assertTrue(seen.containsAll(java.util.List.of("/app.js", "/instruments.js", "/drums.js", "/style.css",
-                "/chart.js", "/stage.js", "/timeline.js", "/narrator.js", "/notes.js")), "crawled only " + seen);
+                "/chart.js", "/stage.js", "/timeline.js", "/narrator.js", "/notes.js", "/robots.js", "/reactions.js")), "crawled only " + seen);
     }
 
-    /** The pictures of the band are loaded by the page as images, so nothing above would notice if one went missing. */
+    /** The robots are drawn by robots.js; the page icon is the one picture file, and nothing above would notice if it went missing. */
     @Test
-    void servesAPictureForEveryInstrument() throws Exception {
-        java.util.Set<String> pictures = new java.util.TreeSet<>();
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("'(assets/[\\w]+\\.svg)'").matcher(get("/notes.js").body());
-        while (matcher.find()) {
-            pictures.add("/" + matcher.group(1));
-        }
-        assertEquals(java.util.Set.of("/assets/sax.svg", "/assets/piano.svg", "/assets/bass.svg", "/assets/drums.svg"), pictures);
-        for (String picture : pictures) {
-            HttpResponse<String> response = get(picture);
-            assertEquals(200, response.statusCode(), picture);
-            assertTrue(response.headers().firstValue("content-type").orElse("").startsWith("image/svg+xml"), picture);
-            assertTrue(response.body().contains("<svg"), picture + " is not an SVG");
+    void servesThePageIconAndTheRobotModules() throws Exception {
+        HttpResponse<String> icon = get("/assets/favicon.svg");
+        assertEquals(200, icon.statusCode());
+        assertTrue(icon.headers().firstValue("content-type").orElse("").startsWith("image/svg+xml"));
+        assertTrue(icon.body().contains("<svg"));
+        assertTrue(get("/index.html").body().contains("assets/favicon.svg"));
+        for (String module : java.util.List.of("/robots.js", "/reactions.js")) {
+            assertEquals(200, get(module).statusCode(), module);
         }
     }
 
@@ -154,7 +150,7 @@ class PerformanceServerTest {
         try {
             waitFor(() -> !client.ofType("hello").isEmpty(), 5_000);
             JsonNode songs = client.ofType("hello").get(0).path("songs");
-            assertEquals(List.of("blues", "song1"),
+            assertEquals(dev.musebots.core.Songs.IDS,
                     java.util.stream.StreamSupport.stream(songs.spliterator(), false).map(s -> s.path("id").asText()).toList());
             JsonNode blues = songs.get(0);
             assertEquals("Blues in F", blues.path("title").asText());
@@ -162,6 +158,9 @@ class PerformanceServerTest {
             assertEquals(3, blues.path("sections").size());
             assertEquals("F7", blues.path("sections").get(0).path("bars").get(0).asText());
             assertEquals("Song 1", songs.get(1).path("title").asText());
+            assertEquals("Medium swing blues", blues.path("style").asText());
+            assertEquals(120, blues.path("suggestedTempo").asInt());
+            assertTrue(songs.size() >= 8, "the repertoire should offer a good range of tunes");
         } finally {
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
         }
@@ -299,7 +298,7 @@ class PerformanceServerTest {
                         .map(c -> c.path("id").asText()).toList());
                 assertTrue(composers.get(1).path("credit").asText().contains("Weimar Jazz Database"));
 
-                socket.sendText("{\"type\":\"start\",\"tempo\":960,\"ensemble\":\"duo\",\"soloComposer\":\"markov\"}", true).join();
+                socket.sendText("{\"type\":\"start\",\"tempo\":960,\"ensemble\":\"duo\",\"soloComposer\":\"markov\",\"feel\":\"mechanical\"}", true).join();
                 assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
                 assertEquals("FINISHED", client.ofType("status").stream().reduce((a, b) -> b).orElseThrow().path("kind").asText());
                 assertEquals(List.of(), errors(client));
@@ -323,13 +322,61 @@ class PerformanceServerTest {
     }
 
     @Test
+    void rejectsAFeelThatIsNeitherHumanNorMechanical() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"feel\":\"jazzy\"}", true).join();
+            waitFor(() -> !client.ofType("error").isEmpty(), 5_000);
+            assertEquals(List.of("start: feel must be 'human' or 'mechanical'"), errors(client));
+            assertTrue(client.ofType("song").isEmpty());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    /** The beat-aligned bass notes of a performance: how far each is from where a metronome would put it. */
+    private List<Long> bassOffsetsFromTheGrid(String feel) throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"tempo\":200,\"ensemble\":\"duo\",\"feel\":\"" + feel + "\"}", true).join();
+            waitFor(() -> client.ofType("note").stream().filter(n -> "BASS".equals(n.path("instrument").asText())).count() > 60, 30_000);
+            JsonNode head = client.ofType("segment").stream().filter(m -> "The head".equals(m.path("label").asText())).findFirst().orElseThrow();
+            long headStart = head.path("startMs").asLong();
+            socket.sendText("{\"type\":\"stop\"}", true).join();
+            // 200 bpm: a beat is exactly 300 ms. Bass notes in the head fall on beats when the music is as written.
+            return client.ofType("note").stream().filter(n -> "BASS".equals(n.path("instrument").asText()))
+                    .map(n -> n.path("startMs").asLong() - headStart)
+                    .filter(offset -> offset >= -40 && offset < 12 * 4 * 300)
+                    .map(offset -> Math.floorMod(offset + 150, 300L) - 150).toList();
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void aMechanicalFeelPlaysExactlyOnTheGridAndTheHumanFeelDoesNot() throws Exception {
+        List<Long> mechanical = bassOffsetsFromTheGrid("mechanical");
+        assertTrue(mechanical.size() > 30);
+        assertTrue(mechanical.stream().allMatch(offset -> Math.abs(offset) <= 1), "as written, the bass is on the beat: " + mechanical);
+
+        List<Long> human = bassOffsetsFromTheGrid("human");
+        assertTrue(human.size() > 30);
+        double mean = human.stream().mapToLong(Long::longValue).average().orElseThrow();
+        assertTrue(human.stream().anyMatch(offset -> Math.abs(offset) > 2), "the human bass should wander from the grid");
+        assertTrue(human.stream().allMatch(offset -> Math.abs(offset) <= 26), "but only a little: " + human);
+        assertTrue(mean < -1, "and sit a little ahead of the beat: mean " + mean);
+    }
+
+    @Test
     void rejectsAnUnknownSong() throws Exception {
         Client client = new Client();
         WebSocket socket = connect(client);
         try {
             socket.sendText("{\"type\":\"start\",\"song\":\"stairway\"}", true).join();
             waitFor(() -> !client.ofType("error").isEmpty(), 5_000);
-            assertEquals(List.of("start: song must be 'blues' or 'song1'"), errors(client));
+            assertEquals(List.of("start: song must be one of " + String.join(", ", dev.musebots.core.Songs.IDS)), errors(client));
             assertTrue(client.ofType("song").isEmpty());
         } finally {
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
@@ -341,7 +388,7 @@ class PerformanceServerTest {
         Client client = new Client();
         WebSocket socket = connect(client);
         try {
-            socket.sendText("{\"type\":\"start\",\"tempo\":960}", true).join();
+            socket.sendText("{\"type\":\"start\",\"tempo\":960,\"order\":\"fixed\"}", true).join();
             assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
 
             assertEquals("FINISHED", client.ofType("status").stream().reduce((a, b) -> b).orElseThrow().path("kind").asText());
@@ -351,6 +398,38 @@ class PerformanceServerTest {
             }
             assertEquals(3, client.ofType("conversation").stream()
                     .filter(m -> "PROPOSE".equals(m.path("performative").asText())).count());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void shufflesTheTurnsByDefaultButEveryoneStillSolosOnce() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"tempo\":960}", true).join();
+            assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
+
+            List<String> sections = sections(client);
+            assertEquals("The head", sections.get(0));
+            assertEquals("The ending", sections.get(sections.size() - 1));
+            assertEquals(java.util.Set.of("sax solo", "piano solo", "bass solo", "drums solo"),
+                    new java.util.HashSet<>(sections.subList(1, sections.size() - 1)));
+            assertEquals(6, sections.size());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void rejectsAnUnknownTurnOrder() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"order\":\"sideways\"}", true).join();
+            waitFor(() -> !client.ofType("error").isEmpty(), 5_000);
+            assertEquals(List.of("start: order must be 'random' or 'fixed'"), errors(client));
         } finally {
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
         }
@@ -432,7 +511,7 @@ class PerformanceServerTest {
         Client client = new Client();
         WebSocket socket = connect(client);
         try {
-            socket.sendText(start(960, "duo"), true).join();
+            socket.sendText("{\"type\":\"start\",\"tempo\":960,\"soloChoruses\":1,\"ensemble\":\"duo\",\"feel\":\"mechanical\"}", true).join();
             socket.sendText("{\"type\":\"conduct\",\"command\":\"mute\",\"instrument\":\"bass\"}", true).join();
             socket.sendText("{\"type\":\"conduct\",\"command\":\"volume\",\"instrument\":\"piano\",\"value\":0.4}", true).join();
 
