@@ -177,4 +177,190 @@ class MarkovModelTest {
         assertTrue(model.describe().startsWith("learned from 1 solos (32 notes, instruments: as)"));
         assertTrue(model.describe().contains("1 solos held out"));
     }
+
+    // ---- phrases, landing and repeating ----
+
+    /** Four quarter notes, a beat of silence, four more, and so on: phrases of four notes. */
+    private static List<TickNote> phrasesOfFour(int bars, int[] pitches) {
+        List<TickNote> notes = new ArrayList<>();
+        int tick = 0;
+        int n = 0;
+        while (tick < bars * 48) {
+            for (int k = 0; k < 4 && tick < bars * 48; k++) {
+                notes.add(new TickNote(tick, 10, pitches[n++ % pitches.length]));
+                tick += 12;
+            }
+            tick += 12; // the breath
+        }
+        return notes;
+    }
+
+    @Test
+    void learnsHowLongPhrasesRunAndWhereTheBreathsAre() {
+        int[] figure = {65, 69, 72, 75};
+        MarkovModel model = train(Solos.solo("a", "Phrases", phrasesOfFour(16, figure)), Solos.solo("b", "Phrases", phrasesOfFour(16, figure)),
+                Solos.solo("c", "Phrases", phrasesOfFour(16, figure)), Solos.solo("d", "Phrases", phrasesOfFour(16, figure)));
+        List<TickNote> line = model.generate(Collections.nCopies(8, Chord.parse("F7")), 4, 75, 55, 80, 1.0, 0.0, new Random(1));
+
+        int run = 1;
+        List<Integer> runs = new ArrayList<>();
+        for (int i = 1; i < line.size(); i++) {
+            if (line.get(i).tick() - line.get(i - 1).end() >= 12) {
+                runs.add(run);
+                run = 1;
+            } else {
+                run++;
+            }
+        }
+        assertTrue(runs.size() >= 4, "it breathes: " + runs);
+        assertTrue(runs.stream().allMatch(r -> r == 4), "after four notes, as in everything it was shown: " + runs);
+    }
+
+    /** Four bars of F7 then four of Bb7, the last note of every bar before a change the third of the chord that follows. */
+    private static Corpus.Solo aimedAtTheNextChord(String id) {
+        List<TickNote> notes = new ArrayList<>();
+        for (int bar = 0; bar < 16; bar++) {
+            boolean lastBeforeChange = bar % 4 == 3;
+            boolean bb = (bar / 4) % 2 == 1;
+            int base = bb ? 70 : 65; // the roots, F4 and Bb4
+            for (int beat = 0; beat < 4; beat++) {
+                int pitch = base + (beat % 2 == 0 ? 0 : 4);
+                if (lastBeforeChange && beat == 3) {
+                    // The third of the chord to come (A over F7 after Bb7; D over Bb7 after F7), approached from above.
+                    pitch = bb ? 69 : 74;
+                }
+                notes.add(new TickNote(bar * 48 + beat * 12, 10, pitch));
+            }
+        }
+        return Solos.solo(id, "Aimed", "as", 120, 4,
+                List.of(new Corpus.ChordChange(0, "F7"), new Corpus.ChordChange(192, "Bb7"), new Corpus.ChordChange(384, "F7"),
+                        new Corpus.ChordChange(576, "Bb7")), notes);
+    }
+
+    /** How often the last note before each chord change is the third of the chord that follows. */
+    private static double landingRate(MarkovModel model) {
+        List<Chord> chords = new ArrayList<>();
+        for (String symbol : List.of("F7", "F7", "F7", "F7", "Bb7", "Bb7", "Bb7", "Bb7", "F7", "F7", "F7", "F7")) {
+            chords.add(Chord.parse(symbol));
+        }
+        int landed = 0;
+        int changes = 0;
+        for (long seed = 0; seed < 300; seed++) {
+            // From the A it was taught to start bars from, so the line stays on the path it learned and only the last note is at stake.
+            List<TickNote> line = model.generate(chords, 4, 69, 55, 85, 1.0, 0.0, new Random(seed));
+            for (int change : new int[] {4, 8}) { // the bars the chord changes to
+                Chord next = chords.get(change);
+                TickNote last = line.stream().filter(n -> n.tick() < change * 48).reduce((a, b) -> b).orElseThrow();
+                changes++;
+                if (last.pitch() % 12 == next.thirdPc()) {
+                    landed++;
+                }
+            }
+        }
+        return (double) landed / changes;
+    }
+
+    @Test
+    void learnsToLandOnTheChordThatIsComing() {
+        MarkovModel model = train(aimedAtTheNextChord("a"), aimedAtTheNextChord("b"));
+        assertEquals(Map.of("l", Map.of("4", 6), "l|D", Map.of("4", 6), "l|D|0", Map.of("4", 6)), model.landing(),
+                "it learned that the last note before a change sits on the third (degree 4) of the coming chord");
+
+        // The leap table alone, with the same lessons but without the landing table, aims at the next chord only by accident.
+        double without = landingRate(new MarkovModel(model.meta(), model.rhythm(), model.pitch(), null));
+        double with = landingRate(model);
+        // Only a few notes in these lessons are aimed (the others share their situation), so the lift is a modest one: but it is there.
+        assertTrue(with > without + 0.07, "landing lifts the rate of landing on the third from " + without + " to " + with);
+    }
+
+    @Test
+    void aLineThatIgnoresTheNextChordLandsOnItOnlyByChance() {
+        // The same lines, shown with no chord changes at all, give the model no reason to aim: the baseline the test above beats.
+        List<TickNote> notes = aimedAtTheNextChord("a").notes();
+        Corpus.Solo flat = Solos.solo("flat", "Flat", "as", 120, 4, List.of(new Corpus.ChordChange(0, "F7")), notes);
+        MarkovModel model = train(flat);
+        assertTrue(model.landing().isEmpty() || model.landing().keySet().stream().noneMatch(k -> k.startsWith("l|m")),
+                "nothing to learn about aiming at the next chord when it never changes");
+    }
+
+    /** How often the first full phrase (three notes or more) is followed by a phrase of the same steps and rhythm. */
+    private static double repeatRate(MarkovModel model, double motifRepeat) {
+        List<Chord> chords = Collections.nCopies(8, Chord.parse("F7"));
+        int repeats = 0;
+        int lines = 0;
+        for (long seed = 0; seed < 30; seed++) {
+            List<TickNote> line = model.generate(chords, 4, 65, 55, 80, 1.0, motifRepeat, new Random(seed));
+            List<List<TickNote>> phrases = new ArrayList<>();
+            List<TickNote> current = new ArrayList<>();
+            for (int i = 0; i < line.size(); i++) {
+                if (i > 0 && line.get(i).tick() - line.get(i - 1).end() >= 12) {
+                    phrases.add(current);
+                    current = new ArrayList<>();
+                }
+                current.add(line.get(i));
+            }
+            phrases.add(current);
+            for (int i = 0; i + 1 < phrases.size() - 1; i++) { // the last phrase may be cut short by the end of the chart
+                if (phrases.get(i).size() >= 3) {
+                    lines++;
+                    if (shapeOf(phrases.get(i + 1)).equals(shapeOf(phrases.get(i)))) {
+                        repeats++;
+                    }
+                    break;
+                }
+            }
+        }
+        return (double) repeats / lines;
+    }
+
+    @Test
+    void repeatsItsLastPhraseWhenAskedToFittedToTheChord() {
+        MarkovModel model = train(Solos.solo("a", "Phrases", phrasesOfFour(16, new int[] {65, 69, 72, 75, 72, 69, 65, 69})));
+        double never = repeatRate(model, 0.0);
+        double always = repeatRate(model, 1.0);
+        assertTrue(always > 0.9, "asked to repeat, the phrase after a phrase repeats it: " + always);
+        assertTrue(never < always - 0.4, "left to itself it does not, so this is the repeating: " + never);
+    }
+
+    /** What makes a phrase recognisable: the gaps between its notes and the steps in pitch. */
+    private static List<Integer> shapeOf(List<TickNote> phrase) {
+        List<Integer> shape = new ArrayList<>();
+        for (int k = 1; k < phrase.size(); k++) {
+            shape.add(phrase.get(k).tick() - phrase.get(k - 1).tick());
+            shape.add(phrase.get(k).pitch() - phrase.get(k - 1).pitch());
+        }
+        return shape;
+    }
+
+    @Test
+    void neverRepeatsAPhraseWhenToldNotTo() {
+        // Phrases that cannot be told apart by rhythm alone: with repeating off, the model samples them afresh.
+        MarkovModel model = train(Solos.solo("a", "Phrases", phrasesOfFour(16, new int[] {65, 69, 72, 75, 72, 69, 65, 69})));
+        List<Chord> chords = Collections.nCopies(8, Chord.parse("F7"));
+        assertEquals(model.generate(chords, 4, 65, 55, 80, 1.0, 0.0, new Random(4)),
+                model.generate(chords, 4, 65, 55, 80, 1.0, 0.0, new Random(4)));
+    }
+
+    @Test
+    void aModelWrittenBeforePhrasesAndLandingStillPlays() {
+        MarkovModel fresh = train(Solos.solo("a", "Eighths", Solos.eighthsOverF7(8)));
+        MarkovModel old = new MarkovModel(fresh.meta(), fresh.rhythm(), fresh.pitch(), null);
+        assertTrue(old.landing().isEmpty());
+        List<TickNote> line = old.generate(F7_BARS, 4, 65, 55, 80, 1.0, new Random(1));
+        assertEquals(32, line.size());
+    }
+
+    @Test
+    void landsOnlyInRangeEvenWhileAimingAtTheNextChord() {
+        MarkovModel model = train(aimedAtTheNextChord("a"));
+        List<Chord> chords = new ArrayList<>();
+        for (String symbol : List.of("F7", "Bb7", "F7", "Bb7", "F7", "Bb7")) {
+            chords.add(Chord.parse(symbol));
+        }
+        for (long seed = 0; seed < 25; seed++) {
+            for (TickNote note : model.generate(chords, 4, 65, 60, 71, 1.0, new Random(seed))) {
+                assertTrue(note.pitch() >= 60 && note.pitch() <= 71, "pitch " + note.pitch());
+            }
+        }
+    }
 }

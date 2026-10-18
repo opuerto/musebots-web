@@ -121,7 +121,10 @@ Every composer writes six kinds of phrase (`PhraseKind`): intro, head, support (
 Notes are plain `NoteEvent`s: a MIDI pitch (General MIDI percussion numbers for drums), an absolute start time
 in milliseconds, a duration and a velocity. Swing is just timing: `Swing.OFFBEAT` places the second eighth of a
 beat two thirds of the way in. The horn-like parts share one engine (`Improviser`): it picks a rhythmic cell per
-bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on the beat and scale tones off it.
+bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on the beat and scale tones off it. A *solo* is also
+shaped into phrases (`phrased` profiles: the sax, piano right hand and bass solos): two bars or so, the second answering the
+first in the same rhythm and shape, each ending on a held chord tone and a breath, rising and falling inside the phrase, with the last note of each
+bar leading to the guide tone the next chord opens on. The head is not phrased.
 
 ### Modules
 
@@ -281,6 +284,13 @@ MARKOV_MODEL=data/markov-sax.json ./gradlew :server:run
   sat **relative to the chord's root** (so one solo over F7 teaches it every dominant chord), whether the beat is strong, and the last
   leap. Each is a table of counts at several levels of detail; sampling uses the most detailed level seen often enough and backs off to
   coarser ones. A temperature controls how closely it follows the data.
+- **Phrases and landing.** A silence of a beat or more ends a phrase. Both tables also know how far into its phrase the line is, so
+  it learns how long phrases run and that a phrase's last note is placed differently from its first. A third table, *landing*,
+  records where the last note before a chord change (or the last of a phrase) sits relative to the **coming** chord; its weights are
+  multiplied into the leap table's, so the line is drawn toward notes of the chord that follows, with no rule written by hand. And a new phrase
+  sometimes **repeats the one before** it (`motifRepeat`, 0.35), the same rhythm and steps with each note moved to the nearest tone of
+  the scale of the chord it now falls on: a motif and its answer. Models trained before this change still load and play, without
+  the landing table (retrain to get it).
 - **In the band** (`SoloModelComposer`). Only the solos change: the sax, piano and bass solo from the model, and everything else
   (heads, accompaniment, endings, the drums) is as before. The agents are given composers by a `ComposerFactory` and do not know the
   difference.
@@ -296,25 +306,40 @@ system's distributions (leaps, where notes fall in the beat, pitch against the c
 **copy rate**: how much of what it plays is a run of six leaps that also occurs in the training solos.
 
 Results for the saxophone model (trained on 200 solos; 52 held-out solos on tunes it never saw; three solos per system per tune, at the model's
-temperature 1.0 unless stated):
+temperature 1.0 unless stated). The last four columns are about phrasing and the changes: a *phrase* is a run of notes with no silence of a
+beat or more, *rests* is the share of the time with nothing sounding, and the last two say how often the last note of a bar that is
+followed by a different chord is already in that chord's scale, or one of its chord tones:
 
-| | notes / bar | chord tone on strong beat | out of scale | stepwise | leaps (5+) | repeated figures | distance from real | copy rate |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| real solos | 7.87 | 0.52 | 0.19 | 0.56 | 0.14 | 0.25 | 0 | 0.26 |
-| the band's rules | 5.68 | 0.88 | 0.00 | 0.47 | 0.04 | 0.16 | 0.21 | 0.16 |
-| Markov, temperature 1.0 | 6.74 | 0.52 | 0.21 | 0.55 | 0.13 | 0.06 | 0.00 | 0.11 |
-| Markov, temperature 0.7 | 8.82 | 0.57 | 0.16 | 0.63 | 0.07 | 0.17 | 0.03 | 0.23 |
+| | notes / bar | chord tone on strong beat | repeated figures | rests | notes / phrase | step into a new chord | bar's last note in the next scale | ...a tone of the next chord | distance from real | copy rate |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| real solos | 7.87 | 0.52 | 0.25 | 0.33 | 28.1 (sd 35) | 0.54 | 0.74 | 0.42 | 0 | 0.26 |
+| the band's rules, before | 5.68 | 0.88 | 0.16 | 0.25 | 17.0 | 0.42 | 0.77 | 0.38 | 0.21 | 0.16 |
+| the band's rules, now | 5.37 | 0.91 | 0.19 | 0.31 | 9.3 | 0.51 | 0.88 | 0.51 | 0.19 | 0.16 |
+| Markov, before (T 1.0) | 6.74 | 0.52 | 0.06 | 0.37 | 18.6 | 0.62 | 0.69 | 0.38 | 0.00 | 0.11 |
+| Markov, now (T 1.0) | 6.81 | 0.53 | 0.12 | 0.37 | 19.2 | 0.58 | 0.79 | 0.44 | 0.00 | 0.12 |
+| Markov, now (T 0.7) | 9.46 | 0.56 | 0.24 | 0.22 | 118.9 | 0.69 | 0.79 | 0.43 | 0.03 | 0.25 |
 
 What this does and does not show:
 
-- **The rules are safe.** 88% of their strong-beat notes are chord tones against 52% in real solos, they never leave the scale
-  (real players do, 19% of the time), they leap rarely, and their rhythm is far from real jazz (0.39 on gaps between notes). Whether safe is
-  *worse* is a question about how it sounds, which this does not answer.
-- **The Markov model matches the real statistics by construction.** A model that counts reproduces what it counted, so its
-  distance is about 0 and this table cannot rank one Markov variant against another. Matching the statistics is not the same as sounding good.
-- **The gap is memory.** Real soloists repeat and develop their own ideas (25% of figures repeat); the model, which only looks back two notes,
-  does so 6% of the time at temperature 1.0. Motifs and phrases are where a better model, neural or rule-based, has room.
-- **Not measured: how it sounds.** Nothing here is a listening test, and these are statistics, not musicality.
+- **The rules now phrase.** They play two-bar phrases (sometimes three or four), the second usually answering the first in the same
+  rhythm and shape (an answer follows a statement three times in four), take a breath at the end of each (rests rose from 25% to 31%, close to the real 33%), move in a rising and falling
+  contour, and lead into each new chord: the last note of a bar is mostly a tone of the next chord, or a step of its scale beside the
+  guide tone it opens on, and now and then a chromatic half step. Stepping into a new chord went from 0.42 to 0.51 (real: 0.54). They
+  are still **safe**: 91% of their strong-beat notes are chord tones against 52% in real solos, they never leave the scale, and they play fewer notes. Whether safe is *worse*
+  is a question about how it sounds, which this does not answer. Their phrases are shorter than real ones (9 notes against a mean of 28, which has a
+  very wide spread: real solos vary from a few notes to a whole chorus without a breath).
+- **The Markov model's landing is only a small gain on these numbers, because it was already close.** Without being told about the next chord it
+  already put the last note of a bar in the next chord's scale 69% of the time (real: 74%); now 79%, and 44% on chord tones (real: 42%). So it
+  hits the real figures about as closely as before, from the other side. The table is not wasted: in a small test where the data holds a
+  clear lesson, a model with it lands on the next chord's third far more often than the same model without it. But on the real data this
+  measure cannot show a big improvement, because the baseline did not leave one.
+- **The motif repeat doubled repeated figures (0.06 to 0.12) but is still half the real 0.25.** Raising `motifRepeat` from 0.3 to 0.5 moved it only from
+  0.12 to 0.14, so the limit is how few phrases a solo has to repeat, not the setting. At temperature 0.7 the model repeats a lot (0.24) but hardly ever
+  breathes (118 notes to a phrase): sticking to the most likely rhythm leaves out the rests.
+- **The Markov model still matches the real statistics by construction.** A model that counts reproduces what it counted, so its
+  distance is about 0 and this table cannot rank one Markov variant against another on those. Matching the statistics is not the same as sounding good.
+- **Not measured: how it sounds.** Nothing here is a listening test, and these are statistics, not musicality. The new rule-based phrasing, and
+  the model's phrases and repeats, are meant to be heard; whether they are better is for ears to say.
 - **Limits.** Chords are simplified to three kinds, so some of the real solos' "out of scale" notes are harmony the band cannot express;
   generation uses one chord per bar; the model is for saxophone-range lines; 52 held-out solos is a small test set.
 
@@ -322,8 +347,8 @@ What this does and does not show:
 
 Everything above the model stays: `PhraseComposer` is the one place a composer plugs in, `ComposerFactory` chooses it per instrument,
 `evaluate` compares it with these two on the same footing, and the copy rate shows whether it merely memorised. A neural model would
-be trained on the same corpus (the same split, in Python) and exported, and has to beat the Markov row on repeated figures without
-a copy rate far above the real solos'.
+be trained on the same corpus (the same split, in Python) and exported, and has to beat the Markov row on repeated figures and on
+long phrases without a copy rate far above the real solos'.
 
 ## Not yet built
 

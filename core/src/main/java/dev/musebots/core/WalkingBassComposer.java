@@ -16,7 +16,7 @@ public final class WalkingBassComposer implements PhraseComposer {
     public WalkingBassComposer(RandomGenerator random) {
         this.random = random;
         this.solo = new Improviser(Instrument.BASS,
-                new Improviser.Profile(LOW, 60, 48, Improviser.SOLO_CELLS, true), random);
+                new Improviser.Profile(LOW, 60, 48, Improviser.SOLO_CELLS, true, true), random);
     }
 
     @Override

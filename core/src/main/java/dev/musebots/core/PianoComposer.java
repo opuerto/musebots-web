@@ -15,7 +15,7 @@ public final class PianoComposer implements PhraseComposer {
     public PianoComposer(RandomGenerator random) {
         this.random = random;
         this.rightHand = new Improviser(Instrument.PIANO,
-                new Improviser.Profile(60, 84, 72, Improviser.SOLO_CELLS, true), random);
+                new Improviser.Profile(60, 84, 72, Improviser.SOLO_CELLS, true, true), random);
     }
 
     @Override

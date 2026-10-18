@@ -139,6 +139,12 @@ public final class Evaluation {
         stats.put("stepwise", stat(scalars, SoloMetrics.Scalars::stepwise));
         stats.put("leaps (5+)", stat(scalars, SoloMetrics.Scalars::leaps));
         stats.put("repeated figures", stat(scalars, SoloMetrics.Scalars::repetition));
+        stats.put("notes per phrase", stat(scalars, SoloMetrics.Scalars::phraseNotes));
+        stats.put("rests", stat(scalars, SoloMetrics.Scalars::restShare));
+        stats.put("chord tone on a new chord", stat(scalars, SoloMetrics.Scalars::arrivalOnChordTone));
+        stats.put("step into a new chord", stat(scalars, SoloMetrics.Scalars::arrivalByStep));
+        stats.put("bar's last note in the next chord's scale", stat(scalars, SoloMetrics.Scalars::leadsIntoScale));
+        stats.put("bar's last note a tone of the next chord", stat(scalars, SoloMetrics.Scalars::leadsIntoChordTone));
 
         SoloMetrics.Distributions mine = pool(lines);
         Map<String, Double> divergence = new LinkedHashMap<>();

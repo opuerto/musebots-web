@@ -220,7 +220,7 @@ class PerformanceServerTest {
         Client client = new Client();
         WebSocket socket = connect(client);
         try {
-            socket.sendText("{\"type\":\"start\",\"tempo\":960,\"ensemble\":\"duo\",\"song\":\"song1\"}", true).join();
+            socket.sendText("{\"type\":\"start\",\"tempo\":960,\"order\":\"fixed\",\"ensemble\":\"duo\",\"song\":\"song1\"}", true).join();
             assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
 
             // The chart comes first, before anything the band does.
@@ -298,7 +298,7 @@ class PerformanceServerTest {
                         .map(c -> c.path("id").asText()).toList());
                 assertTrue(composers.get(1).path("credit").asText().contains("Weimar Jazz Database"));
 
-                socket.sendText("{\"type\":\"start\",\"tempo\":960,\"ensemble\":\"duo\",\"soloComposer\":\"markov\",\"feel\":\"mechanical\"}", true).join();
+                socket.sendText("{\"type\":\"start\",\"tempo\":960,\"order\":\"fixed\",\"ensemble\":\"duo\",\"soloComposer\":\"markov\",\"feel\":\"mechanical\"}", true).join();
                 assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
                 assertEquals("FINISHED", client.ofType("status").stream().reduce((a, b) -> b).orElseThrow().path("kind").asText());
                 assertEquals(List.of(), errors(client));
@@ -340,7 +340,7 @@ class PerformanceServerTest {
         Client client = new Client();
         WebSocket socket = connect(client);
         try {
-            socket.sendText("{\"type\":\"start\",\"tempo\":200,\"ensemble\":\"duo\",\"feel\":\"" + feel + "\"}", true).join();
+            socket.sendText("{\"type\":\"start\",\"tempo\":200,\"order\":\"fixed\",\"ensemble\":\"duo\",\"feel\":\"" + feel + "\"}", true).join();
             waitFor(() -> client.ofType("note").stream().filter(n -> "BASS".equals(n.path("instrument").asText())).count() > 60, 30_000);
             JsonNode head = client.ofType("segment").stream().filter(m -> "The head".equals(m.path("label").asText())).findFirst().orElseThrow();
             long headStart = head.path("startMs").asLong();
@@ -511,7 +511,7 @@ class PerformanceServerTest {
         Client client = new Client();
         WebSocket socket = connect(client);
         try {
-            socket.sendText("{\"type\":\"start\",\"tempo\":960,\"soloChoruses\":1,\"ensemble\":\"duo\",\"feel\":\"mechanical\"}", true).join();
+            socket.sendText("{\"type\":\"start\",\"tempo\":960,\"soloChoruses\":1,\"order\":\"fixed\",\"ensemble\":\"duo\",\"feel\":\"mechanical\"}", true).join();
             socket.sendText("{\"type\":\"conduct\",\"command\":\"mute\",\"instrument\":\"bass\"}", true).join();
             socket.sendText("{\"type\":\"conduct\",\"command\":\"volume\",\"instrument\":\"piano\",\"value\":0.4}", true).join();
 

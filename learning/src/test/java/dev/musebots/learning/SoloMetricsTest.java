@@ -133,4 +133,56 @@ class SoloMetricsTest {
         assertEquals(1.0 / 3, shares[13], 1e-12); // 36 ticks: up to a bar
         assertEquals(1.0 / 3, shares[14], 1e-12); // 64 ticks: more than a bar
     }
+
+    // ---- phrases, rests and the changes ----
+
+    private static final Chord BB7 = Chord.parse("Bb7"); // B-flat D F A-flat; scale B-flat C D-flat D E-flat F G A-flat
+
+    /** F7 for the first bar and B-flat7 from the second. */
+    private static SoloMetrics.Line overTwoChords(int bars, TickNote... notes) {
+        return new SoloMetrics.Line(List.of(notes), tick -> tick < 48 ? F7 : BB7, bars);
+    }
+
+    @Test
+    void aPhraseEndsAtASilenceOfABeatOrMore() {
+        // Four notes, a beat of silence (the last note ends at 42, the next starts at 60), then two more: two phrases of 3.
+        SoloMetrics.Scalars scalars = SoloMetrics.scalars(line(2,
+                note(0, 65), note(12, 67), note(24, 69), note(36, 70), note(60, 72), note(72, 74)));
+        assertEquals(3.0, scalars.phraseNotes(), 1e-12);
+        // Without the silence it is one run.
+        assertEquals(6.0, SoloMetrics.scalars(line(2,
+                note(0, 65), note(12, 67), note(24, 69), note(36, 70), note(48, 72), note(60, 74))).phraseNotes(), 1e-12);
+    }
+
+    @Test
+    void restsAreTheShareOfTheTimeWithNothingSounding() {
+        // One bar of 48 ticks with 24 ticks of notes (four of 6).
+        assertEquals(0.5, SoloMetrics.scalars(line(1, note(0, 65), note(12, 67), note(24, 69), note(36, 70))).restShare(), 1e-12);
+    }
+
+    @Test
+    void measuresWhetherTheFirstNoteOfANewChordIsAToneOfItAndHowFarItCameFrom() {
+        // Bar 2 (over B-flat7) opens on D (chord tone) reached from E-flat by a whole step: both count.
+        SoloMetrics.Scalars good = SoloMetrics.scalars(overTwoChords(2, note(36, 75), note(48, 74)));
+        assertEquals(1.0, good.arrivalOnChordTone(), 1e-12);
+        assertEquals(1.0, good.arrivalByStep(), 1e-12);
+        // It opens on C (not a tone of B-flat7) reached from F7's A by a leap of three: neither counts.
+        SoloMetrics.Scalars bad = SoloMetrics.scalars(overTwoChords(2, note(36, 69), note(48, 72)));
+        assertEquals(0.0, bad.arrivalOnChordTone(), 1e-12);
+        assertEquals(0.0, bad.arrivalByStep(), 1e-12);
+        // No change of chord, no arrival to measure.
+        assertTrue(Double.isNaN(SoloMetrics.scalars(line(2, note(36, 69), note(48, 72))).arrivalOnChordTone()));
+    }
+
+    @Test
+    void measuresWhetherTheLastNoteOfABarAlreadyBelongsToTheNextChord() {
+        // The last note of bar 1 is E-flat (pitch class 3): in B-flat7's scale, but not one of its chord tones.
+        SoloMetrics.Scalars scale = SoloMetrics.scalars(overTwoChords(2, note(36, 63), note(48, 74)));
+        assertEquals(1.0, scale.leadsIntoScale(), 1e-12);
+        assertEquals(0.0, scale.leadsIntoChordTone(), 1e-12);
+        // D is a tone of B-flat7.
+        assertEquals(1.0, SoloMetrics.scalars(overTwoChords(2, note(36, 62), note(48, 74))).leadsIntoChordTone(), 1e-12);
+        // B natural (pitch class 11) is not in B-flat7's scale.
+        assertEquals(0.0, SoloMetrics.scalars(overTwoChords(2, note(36, 71), note(48, 74))).leadsIntoScale(), 1e-12);
+    }
 }

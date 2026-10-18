@@ -24,7 +24,7 @@ public final class SaxComposer implements PhraseComposer {
         this.head = new Improviser(Instrument.SAX,
                 new Improviser.Profile(LOW, HIGH, START_NEAR, Improviser.MELODY_CELLS, false), random);
         this.solo = new Improviser(Instrument.SAX,
-                new Improviser.Profile(LOW, HIGH, START_NEAR, Improviser.SOLO_CELLS, true), random);
+                new Improviser.Profile(LOW, HIGH, START_NEAR, Improviser.SOLO_CELLS, true, true), random);
     }
 
     @Override
