@@ -74,6 +74,7 @@ export function installDocument() {
     getElementById: (id) => elements[id],
     createElement: (tag) => new FakeElement(tag),
     createElementNS: (namespace, tag) => new FakeElement(tag),
+    documentElement: new FakeElement('html'),
   };
   return elements;
 }

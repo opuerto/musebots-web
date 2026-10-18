@@ -22,6 +22,16 @@ node --test server/src/test/js/*.test.mjs   # just the browser tests
 
 ## The page
 
+The page is plain HTML, one stylesheet and ES modules: no framework and no build step, so the server serves it as it is
+and there is nothing extra to install to run or deploy it.
+
+- **Looks:** a design system in CSS custom properties (colour, type scale, spacing, radii) with a **light and a dark theme**. The page
+  follows the system until you press the toggle in the top bar; the choice is remembered (`theme.js`, and `theme-init.js`, which applies
+  it before the first paint so there is no flash). The text is set in the system's UI font with tabular figures for numbers; a test checks that
+  the two themes define the same tokens and that text keeps a WCAG AA contrast in both. It respects reduced motion, shows keyboard
+  focus, announces the status politely, and has a skip link.
+- **Top bar:** always in view, with the transport (Start, Stop), the status (a coloured dot: busy, ready, live, error) and the theme toggle.
+  The controls below it are grouped into *The tune* (song, tempo, solo choruses) and *The band* (band, solos, feel, sound).
 - **The band on stage:** a robot per musician, drawn in SVG by `robots.js` (a sax robot, a piano robot, a bass robot and a
   drummer robot). While a robot is playing, its arms, keys, strings or sticks move and it sways with the music; when it is
   addressed it turns to listen, and when it speaks its antenna blinks and a speech bubble shows what it says

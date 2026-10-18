@@ -167,7 +167,7 @@ class PerformanceServerTest {
     }
 
     private static String start(int tempo, String ensemble) {
-        return "{\"type\":\"start\",\"tempo\":" + tempo + ",\"soloChoruses\":1,\"ensemble\":\"" + ensemble + "\"}";
+        return "{\"type\":\"start\",\"tempo\":" + tempo + ",\"soloChoruses\":1,\"order\":\"fixed\",\"ensemble\":\"" + ensemble + "\"}";
     }
 
     /** The parts of the tune after the intro, as the browser is told about them. */

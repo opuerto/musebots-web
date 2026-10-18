@@ -8,6 +8,7 @@ import { caption, leaderLabel } from './narrator.js';
 import { ORDER, readout } from './notes.js';
 import { buildStage } from './stage.js';
 import { reactionTo } from './reactions.js';
+import { initTheme } from './theme.js';
 import { locate, positionTitle, roleOf, whereText } from './timeline.js';
 
 const SYNC_ROUNDS = 8;
@@ -22,6 +23,7 @@ const els = {
   sound: document.getElementById('sound'),
   feel: document.getElementById('feel'),
   soundStatus: document.getElementById('soundStatus'),
+  themeToggle: document.getElementById('themeToggle'),
   credit: document.getElementById('credit'),
   tempo: document.getElementById('tempo'),
   tempoOut: document.getElementById('tempoOut'),
@@ -55,7 +57,12 @@ let segments = []; // the parts of the tune announced so far
 let played = freshPlayed(); // notes that have been scheduled, per instrument, for the display
 
 const serverNow = () => Date.now() + clockOffsetMs;
-const setStatus = (text) => { els.status.textContent = text; };
+/** The status line, with a state the page shows as a coloured dot: idle, busy, ready, live or error. */
+const setStatus = (text, state = 'idle') => {
+  els.status.textContent = text;
+  els.status.dataset.state = state;
+};
+initTheme({ button: els.themeToggle });
 const conduct = (command, fields = {}) => socket.send(JSON.stringify({ type: 'conduct', command, ...fields }));
 
 function freshPlayed() {
@@ -77,7 +84,7 @@ function connect() {
   socket.onopen = syncClock;
   socket.onmessage = (event) => handle(JSON.parse(event.data));
   socket.onclose = () => {
-    setStatus('Disconnected. Reload to reconnect.');
+    setStatus('Disconnected. Reload to reconnect.', 'error');
     els.start.disabled = true;
     els.stop.disabled = true;
     stopRendering();
@@ -108,7 +115,7 @@ function handle(message) {
         bestRtt = rtt;
         clockOffsetMs = message.serverMs + rtt / 2 - t1;
         if (!performing) els.start.disabled = false;
-        if (!performing) setStatus(`Ready (round trip ${rtt} ms).`);
+        if (!performing) setStatus(`Ready (round trip ${rtt} ms).`, 'ready');
       }
       break;
     }
@@ -118,7 +125,7 @@ function handle(message) {
     case 'conversation': log(message); react(message); break;
     case 'status': onStatus(message); break;
     case 'error':
-      setStatus(`Error: ${message.message}`);
+      setStatus(`Error: ${message.message}`, 'error');
       if (message.source === 'start') { // the performance never began
         endPerformance();
       }
@@ -245,7 +252,7 @@ function render() {
   els.chartPosition.textContent = song ? positionTitle(located, song, leaderLabel(located)) : '';
   els.caption.textContent = located ? caption(located, previous) : (segments.length ? 'The band is counting in…' : 'The musicians are getting ready…');
   els.where.textContent = song ? whereText(located, song) : '';
-  if (located) setStatus(located.label.charAt(0).toUpperCase() + located.label.slice(1));
+  if (located) setStatus(located.label.charAt(0).toUpperCase() + located.label.slice(1), 'live');
 
   const states = {};
   for (const instrument of ORDER) {
@@ -322,9 +329,9 @@ const shortName = (name) => {
 
 function onStatus(message) {
   switch (message.kind) {
-    case 'ENSEMBLE_READY': setStatus('The ensemble is assembled…'); break;
-    case 'FINISHED': endPerformance(); setStatus('Finished.'); break;
-    case 'FAILED': endPerformance(); setStatus(`Failed: ${message.message}`); break;
+    case 'ENSEMBLE_READY': setStatus('The ensemble is assembled…', 'busy'); break;
+    case 'FINISHED': endPerformance(); setStatus('Finished.', 'ready'); break;
+    case 'FAILED': endPerformance(); setStatus(`Failed: ${message.message}`, 'error'); break;
   }
 }
 
@@ -352,7 +359,7 @@ els.start.addEventListener('click', async () => {
   stage.reset();
   stage.setBand(ENSEMBLES[els.ensemble.value]);
   stage.setPerforming(true);
-  setStatus('Asking the musicians to gather…');
+  setStatus('Asking the musicians to gather…', 'busy');
   startRendering();
   socket.send(JSON.stringify({
     type: 'start',
@@ -371,7 +378,7 @@ els.stop.addEventListener('click', () => {
   // built straight away from what is already loaded, ready for the next start.
   endPerformance();
   loadBand();
-  setStatus('Stopped.');
+  setStatus('Stopped.', 'ready');
 });
 
 connect();

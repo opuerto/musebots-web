@@ -3,10 +3,10 @@
 export const ORDER = ['SAX', 'PIANO', 'BASS', 'DRUMS'];
 
 export const INSTRUMENTS = {
-  SAX: { label: 'Sax', color: '#d99a1e' },
-  PIANO: { label: 'Piano', color: '#4f74d9' },
-  BASS: { label: 'Bass', color: '#b45a1c' },
-  DRUMS: { label: 'Drums', color: '#c2352a' },
+  SAX: { label: 'Sax', color: '#e0a526' },
+  PIANO: { label: 'Piano', color: '#5b83e8' },
+  BASS: { label: 'Bass', color: '#cc6a26' },
+  DRUMS: { label: 'Drums', color: '#dc4538' },
 };
 
 const PITCH_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];

@@ -3,73 +3,127 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f4f0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0e14" media="(prefers-color-scheme: dark)">
   <title>Musebot Agents by Oscar Puerto</title>
+  <meta name="description" content="A jazz quartet of autonomous software agents that negotiate who plays the intro and trade solos, from research on Artificial Musical Intelligence.">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <script src="theme-init.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <header class="hero">
-      <h1>Musebot Agents <span class="by">by Oscar Puerto</span></h1>
-      <p class="lead">A jazz band of autonomous agents. They agree who plays the intro, play the tune together, and trade solos,
-        handing the lead from one musician to the next. Each musician is really four agents: a musician, a composer, a
-        synchronizer and an ensemble assistant.</p>
-      <p class="research">This is a working demonstration of research on <em>Artificial Musical Intelligence</em> carried out
-        at Reykjavik University. In the Musebot Ensemble platform, musical agents can only talk to a central conductor. Here
-        they also talk to each other, negotiating and coordinating the way the musicians of a jazz quartet do, using
-        standard agent protocols (FIPA Contract Net, Request and Query) on the JADE agent platform. The chord chart and the
-        captions below show those conversations as they happen.</p>
-      <p class="paper">
-        <span class="label">Paper</span>
-        Puerto, O. and Thue, D. (2017).
-        <a href="https://computationalcreativity.net/iccc2017/ICCC_17_accepted_submissions/ICCC-17_paper_57.pdf"
-           target="_blank" rel="noopener noreferrer">A Model of Inter-musician Communication for Artificial Musical Intelligence</a>.
-        International Conference on Computational Creativity (ICCC 2017).
-      </p>
-    </header>
+  <a class="skip" href="#main">Skip to the band</a>
 
-    <section class="controls">
-      <label>Song
-        <select id="song">
-          <option value="blues" selected>Blues in F · 12 bars</option>
-          <option value="song1">Song 1 · AAB, 10 bars</option>
-        </select>
-      </label>
-      <label>Band
-        <select id="ensemble">
-          <option value="quartet" selected>Quartet</option>
-          <option value="duo">Duo (piano and bass)</option>
-        </select>
-      </label>
-      <label>Solos
-        <select id="soloComposer">
-          <option value="rules" selected>Rules (hand-written)</option>
-        </select>
-      </label>
-      <label>Sound
-        <select id="sound">
-          <option value="mixed" selected>Piano and bass recordings, synthesized sax and drums</option>
-          <option value="synth">Synthesizer</option>
-        </select>
-      </label>
-      <label>Feel
-        <select id="feel">
-          <option value="human" selected>Human</option>
-          <option value="mechanical">Mechanical (as written)</option>
-        </select>
-      </label>
-      <label>Tempo <input id="tempo" type="range" min="60" max="200" value="120"> <output id="tempoOut">120</output> bpm</label>
-      <label>Solo choruses <input id="soloChoruses" type="number" min="1" max="2" value="1"></label>
-      <div class="buttons">
-        <button id="start" class="primary" disabled>Start</button>
-        <button id="stop" disabled>Stop</button>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top" aria-label="Musebot Agents">
+        <img src="assets/favicon.svg" alt="" width="30" height="30">
+        <span>Musebot Agents</span>
+      </a>
+
+      <p id="status" class="status" role="status" aria-live="polite" data-state="busy">Connecting…</p>
+
+      <div class="transport" role="group" aria-label="Transport">
+        <button id="start" class="btn primary" type="button" disabled>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5Z" fill="currentColor"/></svg>
+          Start
+        </button>
+        <button id="stop" class="btn" type="button" disabled>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
+          Stop
+        </button>
       </div>
+
+      <button id="themeToggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Switch to the dark theme" title="Switch to the dark theme">
+        <svg class="icon-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.7 6.7 0 0 0 9.8 9.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-copy">
+        <h1>Musebot Agents <span class="by">by Oscar Puerto</span></h1>
+        <p class="lead">A jazz band of autonomous agents. They agree who plays the intro, play the tune together, and trade solos,
+          handing the lead from one musician to the next. Each musician is really four agents: a musician, a composer, a
+          synchronizer and an ensemble assistant.</p>
+        <p class="research">This is a working demonstration of research on <em>Artificial Musical Intelligence</em> carried out
+          at Reykjavik University. In the Musebot Ensemble platform, musical agents can only talk to a central conductor. Here
+          they also talk to each other, negotiating and coordinating the way the musicians of a jazz quartet do, using
+          standard agent protocols (FIPA Contract Net, Request and Query) on the JADE agent platform. The chord chart and the
+          captions below show those conversations as they happen.</p>
+      </div>
+      <aside class="hero-paper">
+        <p class="paper">
+          <span class="label">Paper</span>
+          Puerto, O. and Thue, D. (2017).
+          <a href="https://computationalcreativity.net/iccc2017/ICCC_17_accepted_submissions/ICCC-17_paper_57.pdf"
+             target="_blank" rel="noopener noreferrer">A Model of Inter-musician Communication for Artificial Musical Intelligence</a>.
+          International Conference on Computational Creativity (ICCC 2017).
+        </p>
+      </aside>
     </section>
 
-    <p id="soundStatus" class="credit">Loading the piano and bass recordings…</p>
-    <p id="credit" class="credit" hidden></p>
+    <section class="console" aria-label="Performance settings">
+      <fieldset class="group">
+        <legend>The tune</legend>
+        <div class="fields">
+        <label class="field wide">
+          <span class="field-label">Song</span>
+          <select id="song">
+            <option value="blues" selected>Blues in F · 12 bars</option>
+            <option value="song1">Song 1 · AAB, 10 bars</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Tempo <span class="field-value"><output id="tempoOut">120</output> bpm</span></span>
+          <input id="tempo" type="range" min="60" max="200" value="120">
+        </label>
+        <label class="field">
+          <span class="field-label">Solo choruses</span>
+          <input id="soloChoruses" type="number" min="1" max="2" value="1">
+        </label>
+        </div>
+      </fieldset>
 
-    <p id="status" class="status now">Connecting…</p>
+      <fieldset class="group band">
+        <legend>The band</legend>
+        <div class="fields">
+        <label class="field">
+          <span class="field-label">Band</span>
+          <select id="ensemble">
+            <option value="quartet" selected>Quartet</option>
+            <option value="duo">Duo (piano and bass)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Solos</span>
+          <select id="soloComposer">
+            <option value="rules" selected>Rules (hand-written)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Feel</span>
+          <select id="feel">
+            <option value="human" selected>Human</option>
+            <option value="mechanical">Mechanical (as written)</option>
+          </select>
+        </label>
+        <label class="field wide">
+          <span class="field-label">Sound</span>
+          <select id="sound">
+            <option value="mixed" selected>Piano and bass recordings, synthesized sax and drums</option>
+            <option value="synth">Synthesizer</option>
+          </select>
+        </label>
+        </div>
+      </fieldset>
+    </section>
+
+    <p id="soundStatus" class="note">Loading the piano and bass recordings…</p>
+    <p id="credit" class="note" hidden></p>
 
     <section id="stage" class="stage" aria-label="The band"></section>
 
@@ -82,6 +136,12 @@
       <p id="caption" class="caption"></p>
       <p id="where" class="where"></p>
     </section>
+
+    <details class="log">
+      <summary>What the musicians say to each other</summary>
+      <p class="hint">Tempo changes apply from the next part of the tune. Volume and mute are heard within about a bar.</p>
+      <ol id="conversation" class="conversation"></ol>
+    </details>
 
     <details class="credits">
       <summary>Sound credits</summary>
@@ -97,13 +157,11 @@
           <a href="https://creativecommons.org/licenses/by/3.0/us/" target="_blank" rel="noopener noreferrer">CC BY 3.0</a>.</li>
       </ul>
     </details>
-
-    <details class="log">
-      <summary>What the musicians say to each other</summary>
-      <p class="hint">Tempo changes apply from the next part of the tune. Volume and mute are heard within about a bar.</p>
-      <ol id="conversation" class="conversation"></ol>
-    </details>
   </main>
+
+  <footer class="footer">
+    <p>Musebot Agents · research demonstration · Oscar Puerto</p>
+  </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>
   <script type="module" src="app.js"></script>

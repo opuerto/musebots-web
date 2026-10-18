@@ -66,6 +66,16 @@ test('Start stays disabled until the clock has synced with the server', () => {
   assert.equal(page.start.disabled, true);
   socket.receive({ type: 'time.sync', t0: Date.now() - 4, serverMs: Date.now() });
   assert.equal(page.start.disabled, false);
+  assert.equal(page.status.dataset.state, 'ready');
+});
+
+test('the theme toggle is wired to the page', async () => {
+  assert.ok(['light', 'dark'].includes(document.documentElement.dataset.theme));
+  const before = document.documentElement.dataset.theme;
+  await page.themeToggle.fire('click');
+  assert.notEqual(document.documentElement.dataset.theme, before);
+  await page.themeToggle.fire('click');
+  assert.equal(document.documentElement.dataset.theme, before);
 });
 
 test('the server offers its tunes, and the page previews the chart of the one chosen', async () => {
