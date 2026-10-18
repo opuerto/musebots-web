@@ -1,83 +1,77 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FakeElement } from './fake-dom.mjs';
-import { initTheme, resolveTheme, THEME_KEY } from '../../main/resources/public/theme.js';
+import { DEFAULT_THEME, initTheme, resolveTheme, THEME_KEY } from '../../main/resources/public/theme.js';
 
 const memory = (initial = {}) => {
   const values = { ...initial };
   return { values, getItem: (key) => values[key] ?? null, setItem: (key, value) => { values[key] = value; } };
 };
-const mediaQuery = (matches) => {
-  const listeners = [];
-  return { matches, addEventListener: (type, listener) => listeners.push(listener), change(now) { listeners.forEach((l) => l({ matches: now })); } };
-};
-const setup = ({ stored, dark = false } = {}) => {
+const setup = ({ stored, meta = null } = {}) => {
   const root = new FakeElement('html');
   const button = new FakeElement('button');
   const storage = memory(stored ? { [THEME_KEY]: stored } : {});
-  const media = mediaQuery(dark);
-  const theme = initTheme({ button, root, storage, media });
-  return { root, button, storage, media, theme };
+  const theme = initTheme({ button, root, storage, meta });
+  return { root, button, storage, theme };
 };
 
-test('a stored choice wins over the system, and the system decides when nothing is stored', () => {
-  assert.equal(resolveTheme('dark', false), 'dark');
-  assert.equal(resolveTheme('light', true), 'light');
-  assert.equal(resolveTheme(null, true), 'dark');
-  assert.equal(resolveTheme(null, false), 'light');
-  assert.equal(resolveTheme('sepia', true), 'dark', 'an unknown value is ignored');
+test('the page is dark unless the visitor has chosen light', () => {
+  assert.equal(DEFAULT_THEME, 'dark');
+  assert.equal(resolveTheme(null), 'dark');
+  assert.equal(resolveTheme('light'), 'light');
+  assert.equal(resolveTheme('dark'), 'dark');
+  assert.equal(resolveTheme('sepia'), 'dark', 'an unknown value is ignored');
 });
 
-test('with nothing stored the page follows the system', () => {
-  assert.equal(setup({ dark: true }).root.dataset.theme, 'dark');
-  assert.equal(setup({ dark: false }).root.dataset.theme, 'light');
-});
-
-test('a stored choice is applied, and the button says what pressing it will do', () => {
-  const { root, button } = setup({ stored: 'dark' });
+test('with nothing stored the page is dark, whatever the system prefers', () => {
+  const { root, button } = setup();
   assert.equal(root.dataset.theme, 'dark');
   assert.equal(button.attributes['aria-pressed'], 'true');
   assert.equal(button.attributes['aria-label'], 'Switch to the light theme');
   assert.equal(button.attributes.title, 'Switch to the light theme');
 });
 
-test('the button switches theme and remembers the choice', async () => {
-  const { root, button, storage } = setup({ dark: false });
+test('a stored choice of light is applied, and the button says what pressing it will do', () => {
+  const { root, button } = setup({ stored: 'light' });
+  assert.equal(root.dataset.theme, 'light');
+  assert.equal(button.attributes['aria-pressed'], 'false');
   assert.equal(button.attributes['aria-label'], 'Switch to the dark theme');
-  await button.fire('click');
-  assert.equal(root.dataset.theme, 'dark');
-  assert.equal(storage.values[THEME_KEY], 'dark');
-  assert.equal(button.attributes['aria-pressed'], 'true');
+});
+
+test('the button switches theme and remembers the choice', async () => {
+  const { root, button, storage } = setup();
   await button.fire('click');
   assert.equal(root.dataset.theme, 'light');
   assert.equal(storage.values[THEME_KEY], 'light');
   assert.equal(button.attributes['aria-pressed'], 'false');
+  await button.fire('click');
+  assert.equal(root.dataset.theme, 'dark');
+  assert.equal(storage.values[THEME_KEY], 'dark');
+  assert.equal(button.attributes['aria-pressed'], 'true');
 });
 
-test('a change of the system theme is followed only until the visitor chooses', async () => {
-  const { root, button, media } = setup({ dark: false });
-  media.change(true);
-  assert.equal(root.dataset.theme, 'dark', 'followed, as nothing was chosen');
-  await button.fire('click'); // the visitor chooses light
-  assert.equal(root.dataset.theme, 'light');
-  media.change(true);
-  assert.equal(root.dataset.theme, 'light', 'a choice is not overridden by the system');
+test('the browser bars follow the theme', async () => {
+  const meta = new FakeElement('meta');
+  const { button } = setup({ meta });
+  assert.equal(meta.attributes.content, '#0b0e14');
+  await button.fire('click');
+  assert.equal(meta.attributes.content, '#f5f4f0');
 });
 
 test('blocked storage does not stop the toggle from working', async () => {
   const root = new FakeElement('html');
   const button = new FakeElement('button');
   const blocked = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
-  initTheme({ button, root, storage: blocked, media: mediaQuery(false) });
-  assert.equal(root.dataset.theme, 'light');
-  await button.fire('click');
+  initTheme({ button, root, storage: blocked });
   assert.equal(root.dataset.theme, 'dark');
+  await button.fire('click');
+  assert.equal(root.dataset.theme, 'light');
 });
 
-test('it works without a toggle button or a media query', () => {
+test('it works without a toggle button', () => {
   const root = new FakeElement('html');
-  const theme = initTheme({ root, storage: memory(), media: null });
-  assert.equal(theme.current(), 'light');
-  theme.set('dark');
-  assert.equal(root.dataset.theme, 'dark');
+  const theme = initTheme({ root, storage: memory() });
+  assert.equal(theme.current(), 'dark');
+  theme.set('light');
+  assert.equal(root.dataset.theme, 'light');
 });

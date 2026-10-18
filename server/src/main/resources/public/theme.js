@@ -1,10 +1,10 @@
-// Light and dark themes. With nothing chosen the page follows the system; the toggle makes a choice and remembers it.
+// Light and dark themes. The page is dark for everyone; the toggle switches to light and remembers the choice.
 export const THEME_KEY = 'musebots-theme';
+export const DEFAULT_THEME = 'dark';
 
-/** The theme to show: a stored choice wins, otherwise the system's. */
-export function resolveTheme(stored, systemPrefersDark) {
-  if (stored === 'light' || stored === 'dark') return stored;
-  return systemPrefersDark ? 'dark' : 'light';
+/** The theme to show: a stored choice of light or dark, otherwise the default (dark). */
+export function resolveTheme(stored) {
+  return stored === 'light' || stored === 'dark' ? stored : DEFAULT_THEME;
 }
 
 function browserStorage() {
@@ -21,22 +21,23 @@ function browserStorage() {
  * @param button   the toggle; it reports the state through aria-pressed and its label
  * @param root     the element that carries data-theme
  * @param storage  anything with getItem and setItem (localStorage); may be null
- * @param media    a MediaQueryList for prefers-color-scheme: dark; may be null
+ * @param meta     the theme-color meta element, so the browser's own bars follow the theme; may be null
  */
 export function initTheme({
   button,
   root = document.documentElement,
   storage = browserStorage(),
-  media = globalThis.matchMedia?.('(prefers-color-scheme: dark)') ?? null,
+  meta = globalThis.document?.querySelector?.('meta[name="theme-color"]') ?? null,
 } = {}) {
   const read = () => { try { return storage?.getItem(THEME_KEY) ?? null; } catch (error) { return null; } };
   const write = (theme) => { try { storage?.setItem(THEME_KEY, theme); } catch (error) { /* a choice that is not remembered still applies */ } };
 
-  let current = resolveTheme(read(), media?.matches ?? false);
+  let current = resolveTheme(read());
 
   function apply(theme) {
     current = theme;
     root.dataset.theme = theme;
+    meta?.setAttribute('content', theme === 'dark' ? '#0b0e14' : '#f5f4f0');
     if (button) {
       const label = theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme';
       button.setAttribute('aria-pressed', String(theme === 'dark'));
@@ -50,10 +51,6 @@ export function initTheme({
     const next = current === 'dark' ? 'light' : 'dark';
     write(next);
     apply(next);
-  });
-  // Until the visitor chooses, a change of the system theme is followed.
-  media?.addEventListener?.('change', (event) => {
-    if (read() === null) apply(resolveTheme(null, event.matches));
   });
 
   return { current: () => current, set(theme) { write(theme); apply(theme); } };

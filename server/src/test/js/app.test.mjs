@@ -62,6 +62,24 @@ test('the band is on stage from the start, waiting', () => {
   assert.ok(['SAX', 'PIANO', 'BASS', 'DRUMS'].every((i) => part(i, 'mute').disabled), 'no mixing without a performance');
 });
 
+test('the page keeps the connection alive while idle, so a proxy does not close it', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const elapse = (ms) => { for (let spent = 0; spent < ms; spent += 100) t.mock.timers.tick(100); };
+  const before = sentOfType('time.sync').length;
+  socket.onopen(); // a fresh connection: the clock sync (several rounds), then the keep-alive
+  elapse(2_000);
+  const afterSync = sentOfType('time.sync').length;
+  assert.equal(afterSync - before, 8, 'the clock is synced on opening, in eight rounds');
+  elapse(23_000);
+  assert.equal(sentOfType('time.sync').length, afterSync + 1, 'then once every 25 seconds');
+  elapse(50_000);
+  assert.equal(sentOfType('time.sync').length, afterSync + 3);
+  socket.onclose();
+  elapse(100_000);
+  assert.equal(sentOfType('time.sync').length, afterSync + 3, 'and no longer once the connection has gone');
+  t.mock.timers.reset();
+});
+
 test('Start stays disabled until the clock has synced with the server', () => {
   assert.equal(page.start.disabled, true);
   socket.receive({ type: 'time.sync', t0: Date.now() - 4, serverMs: Date.now() });

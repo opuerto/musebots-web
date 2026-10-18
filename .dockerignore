@@ -1,0 +1,23 @@
+# Keep the build context small and free of anything that is not source.
+.git
+.gitignore
+.idea
+*.iml
+.DS_Store
+
+# Built or generated here, rebuilt in the image
+build
+**/build
+.gradle
+out
+
+# Data made from the Weimar Jazz Database (ODbL): never part of the image; mount a trained model as a volume if you use one
+data
+
+# Written by the agent platform when it runs
+APDescription.txt
+MTPs-*.txt
+
+# Not needed to run the server
+**/__pycache__
+*.pyc

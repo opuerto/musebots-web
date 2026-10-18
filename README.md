@@ -18,18 +18,35 @@ Requires Java 17+. No other install: the Gradle wrapper fetches everything else.
 node --test server/src/test/js/*.test.mjs   # just the browser tests
 ```
 
-`PORT` (default 7070) sets the web port and `JADE_PORT` (default 1099) the internal JADE platform port.
+Settings are environment variables, all optional:
+
+| Variable | Default | |
+|---|---|---|
+| `PORT` | 7070 | the web port |
+| `JADE_PORT` | 1099 | the agent platform's own port, used inside the machine only (never publish it) |
+| `MAX_PERFORMANCES` | 8 | how many bands may play at once; each is sixteen agents, so this protects the server's memory. Extra visitors are asked to try again |
+| `ALLOWED_ORIGINS` | none | extra web origins allowed to open the WebSocket, comma separated. Pages served by the server itself always may; other sites are refused (a browser does not stop a WebSocket from being opened from another site, so the server checks) |
+| `MARKOV_MODEL` | none | path of a trained solo model; see "Learning solos from real jazz" |
+
+`GET /health` answers `{"status":"ok","performances":0,"capacity":8}` for uptime checks and the hosting platform.
+
+**Putting it on a public domain:** the repository has a `Dockerfile` and [a step-by-step guide for deploying with Coolify](docs/DEPLOY.md)
+(which also covers Fly.io, Railway and Render, and why Netlify and Vercel do not fit).
 
 ## The page
 
 The page is plain HTML, one stylesheet and ES modules: no framework and no build step, so the server serves it as it is
 and there is nothing extra to install to run or deploy it.
 
-- **Looks:** a design system in CSS custom properties (colour, type scale, spacing, radii) with a **light and a dark theme**. The page
-  follows the system until you press the toggle in the top bar; the choice is remembered (`theme.js`, and `theme-init.js`, which applies
-  it before the first paint so there is no flash). The text is set in the system's UI font with tabular figures for numbers; a test checks that
-  the two themes define the same tokens and that text keeps a WCAG AA contrast in both. It respects reduced motion, shows keyboard
-  focus, announces the status politely, and has a skip link.
+- **Looks:** a design system in CSS custom properties (colour, type scale, spacing, radii) with a **dark theme for everyone by default** and
+  a light one behind the toggle in the top bar. The system's light or dark setting is deliberately not followed; the choice is remembered
+  (`theme.js`, and `theme-init.js`, which applies it before the first paint so there is no flash). The text is set in the system's UI font with
+  tabular figures for numbers; a test checks that the two themes define the same tokens and that text keeps a WCAG AA contrast in both. It
+  respects reduced motion, shows keyboard focus, announces the status politely, and has a skip link.
+- **About page** (`about.html`): who made this. A profile, a summary, the career path at Salling Group as a timeline, skills, experience, education,
+  a portrait (`assets/oscar.jpg`, a 640 px square), the paper and what Oscar does outside work, in the same design and themes, with a contents list that follows you down the page and a print
+  stylesheet. It is plain HTML with no script of its own beyond the theme toggle. It deliberately leaves out phone numbers and references.
+  To change a fact, edit `about.html`; `about.test.mjs` checks the career path is in order and that nothing private is published.
 - **Top bar:** always in view, with the transport (Start, Stop), the status (a coloured dot: busy, ready, live, error) and the theme toggle.
   The controls below it are grouped into *The tune* (song, tempo, solo choruses) and *The band* (band, solos, feel, sound).
 - **The band on stage:** a robot per musician, drawn in SVG by `robots.js` (a sax robot, a piano robot, a bass robot and a

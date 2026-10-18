@@ -3,9 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#f5f4f0" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0b0e14" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0e14">
   <title>Musebot Agents by Oscar Puerto</title>
   <meta name="description" content="A jazz quartet of autonomous software agents that negotiate who plays the intro and trade solos, from research on Artificial Musical Intelligence.">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
@@ -17,10 +16,13 @@
 
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="#top" aria-label="Musebot Agents">
-        <img src="assets/favicon.svg" alt="" width="30" height="30">
-        <span>Musebot Agents</span>
-      </a>
+      <div class="topbar-left">
+        <a class="brand" href="#top" aria-label="Musebot Agents">
+          <img src="assets/favicon.svg" alt="" width="30" height="30">
+          <span>Musebot Agents</span>
+        </a>
+        <a class="navlink" href="about.html">About Oscar</a>
+      </div>
 
       <p id="status" class="status" role="status" aria-live="polite" data-state="busy">Connecting…</p>
 
@@ -35,7 +37,7 @@
         </button>
       </div>
 
-      <button id="themeToggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Switch to the dark theme" title="Switch to the dark theme">
+      <button id="themeToggle" class="icon-btn" type="button" aria-pressed="true" aria-label="Switch to the light theme" title="Switch to the light theme">
         <svg class="icon-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.7 6.7 0 0 0 9.8 9.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
         <svg class="icon-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
@@ -160,7 +162,7 @@
   </main>
 
   <footer class="footer">
-    <p>Musebot Agents · research demonstration · Oscar Puerto</p>
+    <p>Musebot Agents · research demonstration · <a href="about.html">Oscar Puerto</a></p>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>

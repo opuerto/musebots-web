@@ -23,30 +23,29 @@ function block(selector) {
 }
 const declared = (text) => new Set([...text.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));
 
-const light = declared(block(':root,\n:root[data-theme="light"]'));
-const dark = declared(block(':root[data-theme="dark"]'));
-const systemDark = declared(block(':root:not([data-theme])'));
+const DARK = ':root,\n:root[data-theme="dark"]';
+const LIGHT = ':root[data-theme="light"]';
+const dark = declared(block(DARK));
+const light = declared(block(LIGHT));
 
-test('the dark theme defines every colour the light theme does, and the system-dark fallback matches it', () => {
+test('dark is the default and light defines every colour dark does', () => {
   const colours = (set) => [...set].filter((name) => !/^--(font|text|space|radius|ease|measure)/.test(name)).sort();
-  assert.deepEqual(colours(dark), colours(light), 'the dark theme and the light theme should define the same tokens');
-  assert.deepEqual(colours(systemDark), colours(dark), 'following a dark system should look the same as choosing dark');
+  assert.deepEqual(colours(light), colours(dark), 'the two themes should define the same tokens');
   for (const token of ['--bg', '--surface', '--ink', '--muted', '--line', '--primary', '--primary-ink', '--focus', '--shadow', '--chevron']) {
-    assert.ok(light.has(token), `${token} is defined`);
+    assert.ok(dark.has(token), `${token} is defined for the default theme`);
   }
+  assert.match(block(DARK), /color-scheme:\s*dark/);
+  assert.match(block(LIGHT), /color-scheme:\s*light/);
 });
 
-test('the dark and system-dark themes agree on every value', () => {
-  const values = (text) => Object.fromEntries([...text.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
-  const explicit = values(block(':root[data-theme="dark"]'));
-  const fallback = values(block(':root:not([data-theme])'));
-  for (const [name, value] of Object.entries(explicit)) {
-    assert.equal(fallback[name], value, `${name} should be the same whichever way dark was chosen`);
-  }
+test('the system theme is not followed: dark for everyone until light is chosen', () => {
+  assert.ok(!css.includes('prefers-color-scheme'), 'no rule may switch to light for a light system');
+  assert.match(html, /<meta name="color-scheme" content="dark light">/);
+  assert.match(html, /<meta name="theme-color" content="#0b0e14">/);
 });
 
 test('every token the page uses is defined, or set on the element that uses it', () => {
-  const root = new Set([...light, ...declared(block(':root {'))]);
+  const root = new Set([...dark, ...declared(block(':root {'))]);
   const perElement = new Set(['--accent', '--level', '--progress', '--columns', '--perf']);
   const used = [...css.matchAll(/var\((--[\w-]+)/g)].map((match) => match[1]);
   const missing = [...new Set(used)].filter((name) => !root.has(name) && !perElement.has(name));
@@ -60,7 +59,7 @@ test('text and surfaces keep a readable contrast in both themes', () => {
     return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
   };
   const ratio = (a, b) => { const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
-  for (const [theme, text] of [['light', block(':root,\n:root[data-theme="light"]')], ['dark', block(':root[data-theme="dark"]')]]) {
+  for (const [theme, text] of [['light', block(LIGHT)], ['dark', block(DARK)]]) {
     assert.ok(ratio(hex(text, '--ink'), hex(text, '--surface')) >= 7, `${theme}: body text on a panel`);
     assert.ok(ratio(hex(text, '--ink'), hex(text, '--bg')) >= 7, `${theme}: body text on the page`);
     assert.ok(ratio(hex(text, '--muted'), hex(text, '--surface')) >= 4.5, `${theme}: secondary text on a panel (WCAG AA)`);
@@ -77,8 +76,7 @@ test('the page respects reduced motion, shows focus, and has a way to the conten
 });
 
 test('the page offers the toggle and announces its status politely', () => {
-  assert.match(html, /<button id="themeToggle"[^>]*aria-pressed="false"[^>]*aria-label="Switch to the dark theme"/);
+  assert.match(html, /<button id="themeToggle"[^>]*aria-pressed="true"[^>]*aria-label="Switch to the light theme"/, 'it starts as dark, so it offers light');
   assert.match(html, /<p id="status"[^>]*role="status"[^>]*aria-live="polite"/);
   assert.match(html, /<script src="theme-init\.js"><\/script>[\s\S]*<link rel="stylesheet" href="style\.css">/, 'the theme is chosen before the styles paint');
-  assert.match(html, /<meta name="color-scheme" content="light dark">/);
 });

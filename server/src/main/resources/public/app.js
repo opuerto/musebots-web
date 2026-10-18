@@ -81,14 +81,27 @@ stage.setPerforming(false);
 function connect() {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   socket = new WebSocket(`${scheme}://${location.host}/ws`);
-  socket.onopen = syncClock;
+  socket.onopen = () => { syncClock(); startKeepAlive(); };
   socket.onmessage = (event) => handle(JSON.parse(event.data));
   socket.onclose = () => {
+    clearInterval(keepAlive);
     setStatus('Disconnected. Reload to reconnect.', 'error');
     els.start.disabled = true;
     els.stop.disabled = true;
     stopRendering();
   };
+}
+
+/**
+ * A proxy in front of the server may close a connection that has been quiet for a minute or two (Cloudflare does, after 100
+ * seconds). While nothing is playing the page and server say nothing, so the page asks for the time now and then.
+ */
+const KEEP_ALIVE_MS = 25_000;
+let keepAlive = null;
+function startKeepAlive() {
+  clearInterval(keepAlive);
+  keepAlive = setInterval(() => socket.send(JSON.stringify({ type: 'time.sync', t0: Date.now() })), KEEP_ALIVE_MS);
+  keepAlive.unref?.(); // a test run must not wait for it
 }
 
 function syncClock() {

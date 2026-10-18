@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Executors;
 
 /**
@@ -41,7 +42,10 @@ public final class PerformanceServer implements AutoCloseable {
     private final EnsembleRuntime runtime;
     private final ServerLimits limits;
     private final List<SoloOption> soloOptions;
+    private final OriginPolicy origins;
     private final Javalin app;
+    /** Performances running or being started; compared with the limit before another is allowed. */
+    private final AtomicInteger reserved = new AtomicInteger();
     private final Map<String, Performance> running = new ConcurrentHashMap<>();
     // Stopping kills agents; never do that on an agent's own thread.
     private final ExecutorService janitor = Executors.newSingleThreadExecutor(r -> {
@@ -50,13 +54,20 @@ public final class PerformanceServer implements AutoCloseable {
         return thread;
     });
 
-    private PerformanceServer(EnsembleRuntime runtime, ServerLimits limits, List<SoloOption> soloOptions, int httpPort) {
+    private PerformanceServer(EnsembleRuntime runtime, ServerLimits limits, List<SoloOption> soloOptions, OriginPolicy origins, int httpPort) {
         this.runtime = runtime;
         this.limits = limits;
         this.soloOptions = List.copyOf(soloOptions);
+        this.origins = origins;
         this.app = Javalin.create(config -> config.staticFiles.add("/public", Location.CLASSPATH));
+        // For the hosting platform's health check: cheap, and says how busy the band is.
+        app.get("/health", ctx -> ctx.json(Map.of("status", "ok", "performances", running.size(), "capacity", limits.maxPerformances())));
         app.ws("/ws", ws -> {
             ws.onConnect(ctx -> {
+                if (!origins.allows(ctx.header("Origin"), ctx.header("Host"))) {
+                    ctx.closeSession(1008, "this page may not use the band");
+                    return;
+                }
                 ctx.session.setIdleTimeout(Duration.ofMinutes(30));
                 ctx.send(Wire.hello(System.currentTimeMillis(), this.soloOptions));
             });
@@ -77,7 +88,12 @@ public final class PerformanceServer implements AutoCloseable {
 
     /** @param soloOptions the ways of writing solos a browser may choose from; the first is the default */
     public static PerformanceServer start(int httpPort, int jadePort, ServerLimits limits, List<SoloOption> soloOptions) {
-        return new PerformanceServer(EnsembleRuntime.start(jadePort), limits, soloOptions, httpPort);
+        return start(httpPort, jadePort, limits, soloOptions, OriginPolicy.sameOriginOnly());
+    }
+
+    /** @param origins which web pages may connect; by default only those served by this server */
+    public static PerformanceServer start(int httpPort, int jadePort, ServerLimits limits, List<SoloOption> soloOptions, OriginPolicy origins) {
+        return new PerformanceServer(EnsembleRuntime.start(jadePort), limits, soloOptions, origins, httpPort);
     }
 
     public int port() {
@@ -134,6 +150,11 @@ public final class PerformanceServer implements AutoCloseable {
             ctx.send(Wire.error("start", "a performance is already running"));
             return;
         }
+        if (reserved.incrementAndGet() > limits.maxPerformances()) {
+            reserved.decrementAndGet();
+            ctx.send(Wire.error("start", "the band is busy with other visitors right now; please try again in a minute"));
+            return;
+        }
 
         String sessionId = "s" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         WebSocketSink toBrowser = new WebSocketSink(ctx);
@@ -149,7 +170,12 @@ public final class PerformanceServer implements AutoCloseable {
                 : SessionConfig.quartet(sessionId, song, soloChoruses, turnOrder);
         toBrowser.send(Wire.song(songId, song)); // before the band starts, so the chart is ready for the first note
         ComposerFactory composers = feel.equals(FEEL_HUMAN) ? ComposerFactory.humanized(soloOption.composers()) : soloOption.composers();
-        running.put(ctx.sessionId(), runtime.perform(session, sink, composers));
+        try {
+            running.put(ctx.sessionId(), runtime.perform(session, sink, composers));
+        } catch (RuntimeException e) {
+            reserved.decrementAndGet(); // the band never started, so it does not hold a place
+            throw e;
+        }
     }
 
     /** Passes a Conductor command (tempo, volume, mute, unmute) to the performance this browser started. */
@@ -196,6 +222,7 @@ public final class PerformanceServer implements AutoCloseable {
     private void stop(String connectionId) {
         Performance performance = running.remove(connectionId);
         if (performance != null) {
+            reserved.decrementAndGet();
             performance.stop();
         }
     }

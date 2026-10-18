@@ -138,9 +138,25 @@ class PerformanceServerTest {
         assertTrue(icon.headers().firstValue("content-type").orElse("").startsWith("image/svg+xml"));
         assertTrue(icon.body().contains("<svg"));
         assertTrue(get("/index.html").body().contains("assets/favicon.svg"));
-        for (String module : java.util.List.of("/robots.js", "/reactions.js")) {
+        for (String module : java.util.List.of("/robots.js", "/reactions.js", "/theme.js", "/theme-init.js", "/about.js")) {
             assertEquals(200, get(module).statusCode(), module);
         }
+    }
+
+    @Test
+    void servesTheAboutPageAndLinksToItFromTheBandPage() throws Exception {
+        HttpResponse<String> about = get("/about.html");
+        assertEquals(200, about.statusCode());
+        assertTrue(about.headers().firstValue("content-type").orElse("").startsWith("text/html"));
+        assertTrue(about.body().contains("Oscar Puerto") && about.body().contains("Salling Group"));
+        assertTrue(about.body().contains("<script type=\"module\" src=\"about.js\">"));
+        assertTrue(get("/index.html").body().contains("href=\"about.html\""), "the band page links to the About page");
+        java.net.http.HttpResponse<byte[]> photo = java.net.http.HttpClient.newHttpClient().send(
+                java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + server.port() + "/assets/oscar.jpg")).build(),
+                java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, photo.statusCode());
+        assertTrue(photo.headers().firstValue("content-type").orElse("").startsWith("image/jpeg"));
+        assertTrue(photo.body().length > 10_000, "the portrait is served");
     }
 
     @Test
@@ -587,6 +603,91 @@ class PerformanceServerTest {
             assertTrue(client.ofType("note").isEmpty());
         } finally {
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    // ---- running in public: health, origins, and a cap on performances ----
+
+    @Test
+    void reportsItsHealthForTheHostingPlatform() throws Exception {
+        HttpResponse<String> health = get("/health");
+        assertEquals(200, health.statusCode());
+        assertTrue(health.headers().firstValue("content-type").orElse("").startsWith("application/json"));
+        JsonNode body = Wire.MAPPER.readTree(health.body());
+        assertEquals("ok", body.path("status").asText());
+        assertEquals(0, body.path("performances").asInt());
+        assertTrue(body.path("capacity").asInt() >= 1);
+    }
+
+    /** Connects as a browser would, from the page of this origin; returns the close status the server sent, if it closed. */
+    private java.util.concurrent.CompletableFuture<Integer> connectFrom(String origin, Client client) {
+        java.util.concurrent.CompletableFuture<Integer> closed = new java.util.concurrent.CompletableFuture<>();
+        WebSocket.Listener listener = new WebSocket.Listener() {
+            @Override
+            public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+                return client.onText(webSocket, data, last);
+            }
+
+            @Override
+            public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+                closed.complete(statusCode);
+                return null;
+            }
+        };
+        HttpClient.newHttpClient().newWebSocketBuilder().header("Origin", origin)
+                .buildAsync(URI.create("ws://localhost:" + server.port() + "/ws"), listener).join();
+        return closed;
+    }
+
+    @Test
+    void aPageFromAnotherSiteCannotUseTheBand() throws Exception {
+        Client client = new Client();
+        java.util.concurrent.CompletableFuture<Integer> closed = connectFrom("https://evil.example", client);
+        assertEquals(1008, closed.get(5, TimeUnit.SECONDS), "closed as a policy violation");
+        assertTrue(client.ofType("hello").isEmpty(), "and was told nothing");
+    }
+
+    @Test
+    void aPageServedByTheServerItselfCanUseTheBand() throws Exception {
+        Client client = new Client();
+        java.util.concurrent.CompletableFuture<Integer> closed = connectFrom("http://localhost:" + server.port(), client);
+        waitFor(() -> !client.ofType("hello").isEmpty(), 5_000);
+        assertFalse(closed.isDone());
+    }
+
+    @Test
+    void capsHowManyPerformancesRunAtOnceAndLetsAnotherInWhenOneEnds() throws Exception {
+        PerformanceServer small = PerformanceServer.start(0, freePort(), new ServerLimits(60, 960, 2, 1));
+        try {
+            Client first = new Client();
+            Client second = new Client();
+            HttpClient http = HttpClient.newHttpClient();
+            URI uri = URI.create("ws://localhost:" + small.port() + "/ws");
+            WebSocket one = http.newWebSocketBuilder().buildAsync(uri, first).join();
+            WebSocket two = http.newWebSocketBuilder().buildAsync(uri, second).join();
+            String start = "{\"type\":\"start\",\"tempo\":60,\"ensemble\":\"duo\",\"order\":\"fixed\"}";
+            try {
+                one.sendText(start, true).join();
+                waitFor(() -> !first.ofType("song").isEmpty(), 10_000);
+
+                two.sendText(start, true).join();
+                waitFor(() -> !errors(second).isEmpty(), 10_000);
+                assertEquals(1, errors(second).size());
+                assertTrue(errors(second).get(0).startsWith("start: the band is busy"), errors(second).toString());
+                assertTrue(second.ofType("song").isEmpty(), "the second visitor got no band");
+
+                one.sendText("{\"type\":\"stop\"}", true).join();
+                Thread.sleep(500);
+                two.sendText(start, true).join();
+                waitFor(() -> !second.ofType("song").isEmpty(), 10_000);
+                assertEquals(1, errors(second).size(), "once the first band had stopped there was room, and no new error");
+                two.sendText("{\"type\":\"stop\"}", true).join();
+            } finally {
+                one.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+                two.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+            }
+        } finally {
+            small.close();
         }
     }
 }
