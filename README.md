@@ -114,7 +114,8 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 |---|---|---|
 | `core` | Music domain (chords, songs, clock, timeline `Segment`), events, `PhraseComposer` strategy and composers, `SupportPolicy`. No frameworks. | nothing |
 | `agents` | The JADE agents (`MusicianAgent`, `ComposerAgent`, `SynchronizerAgent`, `EnsembleAssistantAgent`, and the session's `ConductorAgent`), their protocols, and `EnsembleRuntime` that hosts sessions. | `core`, JADE |
-| `server` | Javalin HTTP + WebSocket, browser client in `src/main/resources/public`. | `agents` |
+| `learning` | Learning solos from real jazz: the corpus format, a Markov baseline model, the evaluation metrics, and the command-line tools. See [Learning solos from real jazz](#learning-solos-from-real-jazz). | `core` |
+| `server` | Javalin HTTP + WebSocket, browser client in `src/main/resources/public`. | `agents`, `learning` |
 
 ### Design choices
 
@@ -166,10 +167,95 @@ bar, opens bars on guide tones (3rd or 7th), and steps through chord tones on th
 | Ensemble Assistant agent | `EnsembleAssistantAgent` |
 | Musebot Conductor (Max patch, OSC) | The web page, the server's `conduct` messages, and `ConductorAgent` as the gateway into the agents |
 
+## Learning solos from real jazz
+
+The band's solos are written by hand-made rules. This is the start of replacing them with something learned, and of measuring
+whether it is better. It deliberately starts with a **baseline that learns by counting, with no neural network**: that is the thing a
+neural network has to beat, and without it there is nothing to say a network helped.
+
+### The data
+
+[The Weimar Jazz Database](https://jazzomat.hfm-weimar.de/download/download.html) (Jazzomat Research Project, Hochschule für Musik
+Franz Liszt Weimar): 456 transcribed solos, with the chords. It is released under the **Open Data Commons Open Database License
+(ODbL)**: credit it, and share a database you publish that is derived from it under the same terms. Do not commit the data or
+anything made from it unless you may share it; `data/` is ignored by git for that reason. The page credits the data whenever the
+learned solos are selected.
+
+### Running it
+
+```
+# 1. Download wjazzd.db from the page above into data/, and turn it into a plain corpus (Python 3, no packages)
+python3 learning/tools/wjd_to_corpus.py data/wjazzd.db data/corpus.json
+
+# 2. Look at it, train on the saxophone solos (holding out a fifth of the tunes), and evaluate
+./gradlew :learning:run --args="inspect  --corpus data/corpus.json"
+./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-sax.json --instruments sax"
+./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-sax.json --temperatures 0.7,1.0 --report data/report.md"
+
+# 3. Play with it: the page gets a "Solos" menu
+MARKOV_MODEL=data/markov-sax.json ./gradlew :server:run
+```
+
+### How it works
+
+- **Corpus.** Every note and chord is put on a grid of twelve steps to the beat, which holds the straight eighths, triplets and
+  sixteenths the solos are written in. Swing is not in the data: the model learns on the straight grid and the notes are swung
+  when they are played (`Swing`). Chords are the database's own symbols, read as the three kinds of chord the band knows
+  (`ChordSymbols`): a half-diminished chord becomes a minor seventh, an altered dominant a plain dominant.
+- **Model** (`MarkovModel`). It learns *when* the next note comes and *which* note it is separately. The rhythm depends on where the
+  note sits in the bar and the last gap; the pitch is a leap from the previous note, depending on the chord, where the previous note
+  sat **relative to the chord's root** (so one solo over F7 teaches it every dominant chord), whether the beat is strong, and the last
+  leap. Each is a table of counts at several levels of detail; sampling uses the most detailed level seen often enough and backs off to
+  coarser ones. A temperature controls how closely it follows the data.
+- **In the band** (`SoloModelComposer`). Only the solos change: the sax, piano and bass solo from the model, and everything else
+  (heads, accompaniment, endings, the drums) is as before. The agents are given composers by a `ComposerFactory` and do not know the
+  difference.
+- **Split by tune, not by solo** (`Split`). Several players recorded the same tune, so a random split would test the model on
+  chord changes it had trained on.
+
+### Evaluating it
+
+`evaluate` has each system solo over the chord changes of the held-out tunes, and measures the result with the same numbers as the real
+solos played over them (`SoloMetrics`): how often strong beats land on chord tones, how often notes leave the chord's scale, the size of
+the leaps, how dense the playing is, how often a four-interval figure repeats. It also gives the Jensen-Shannon distance between each
+system's distributions (leaps, where notes fall in the beat, pitch against the chord, gaps between notes) and the real ones, and a
+**copy rate**: how much of what it plays is a run of six leaps that also occurs in the training solos.
+
+Results for the saxophone model (trained on 200 solos; 52 held-out solos on tunes it never saw; three solos per system per tune, at the model's
+temperature 1.0 unless stated):
+
+| | notes / bar | chord tone on strong beat | out of scale | stepwise | leaps (5+) | repeated figures | distance from real | copy rate |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| real solos | 7.87 | 0.52 | 0.19 | 0.56 | 0.14 | 0.25 | 0 | 0.26 |
+| the band's rules | 5.68 | 0.88 | 0.00 | 0.47 | 0.04 | 0.16 | 0.21 | 0.16 |
+| Markov, temperature 1.0 | 6.74 | 0.52 | 0.21 | 0.55 | 0.13 | 0.06 | 0.00 | 0.11 |
+| Markov, temperature 0.7 | 8.82 | 0.57 | 0.16 | 0.63 | 0.07 | 0.17 | 0.03 | 0.23 |
+
+What this does and does not show:
+
+- **The rules are safe.** 88% of their strong-beat notes are chord tones against 52% in real solos, they never leave the scale
+  (real players do, 19% of the time), they leap rarely, and their rhythm is far from real jazz (0.39 on gaps between notes). Whether safe is
+  *worse* is a question about how it sounds, which this does not answer.
+- **The Markov model matches the real statistics by construction.** A model that counts reproduces what it counted, so its
+  distance is about 0 and this table cannot rank one Markov variant against another. Matching the statistics is not the same as sounding good.
+- **The gap is memory.** Real soloists repeat and develop their own ideas (25% of figures repeat); the model, which only looks back two notes,
+  does so 6% of the time at temperature 1.0. Motifs and phrases are where a better model, neural or rule-based, has room.
+- **Not measured: how it sounds.** Nothing here is a listening test, and these are statistics, not musicality.
+- **Limits.** Chords are simplified to three kinds, so some of the real solos' "out of scale" notes are harmony the band cannot express;
+  generation uses one chord per bar; the model is for saxophone-range lines; 52 held-out solos is a small test set.
+
+### What a better model would change
+
+Everything above the model stays: `PhraseComposer` is the one place a composer plugs in, `ComposerFactory` chooses it per instrument,
+`evaluate` compares it with these two on the same footing, and the copy rate shows whether it merely memorised. A neural model would
+be trained on the same corpus (the same split, in Python) and exported, and has to beat the Markov row on repeated figures without
+a copy rate far above the real solos'.
+
 ## Not yet built
 
 - More Conductor commands from the original platform, and speaking its OSC messages so Musebots from other developers can take part
 - A tempo change heard sooner than the next part of the tune (parts are a chorus long)
 - Choosing who solos, or how many choruses each, from the UI; trading fours; a final head; dynamics that follow the soloist
+- A neural solo model, a listening test, and solos that react to what the others are playing (the learning tools measure against a baseline; none of that is built)
 - Better instrument sounds (the sax, piano and drums are Tone.js synthesis for now; SoundFonts or samples would sound more real)
 - Letting third-party Musebots join over the network

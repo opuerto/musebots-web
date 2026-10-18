@@ -14,6 +14,7 @@ import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
 import io.javalin.websocket.WsContext;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,7 +25,7 @@ import java.util.concurrent.Executors;
  * Serves the web client and runs one performance per browser connection.
  *
  * <p>Protocol (JSON over WebSocket at {@code /ws}). Client to server: {@code time.sync}, {@code start}
- * (tempo, soloChoruses, ensemble = quartet or duo, song = blues or song1), {@code stop}, and {@code conduct}
+ * (tempo, soloChoruses, ensemble = quartet or duo, song = blues or song1, soloComposer = rules or markov when a model is loaded), {@code stop}, and {@code conduct}
  * (command = tempo, volume, mute or unmute; instrument; value). Server to client: see {@link Wire}.
  */
 public final class PerformanceServer implements AutoCloseable {
@@ -34,6 +35,7 @@ public final class PerformanceServer implements AutoCloseable {
 
     private final EnsembleRuntime runtime;
     private final ServerLimits limits;
+    private final List<SoloOption> soloOptions;
     private final Javalin app;
     private final Map<String, Performance> running = new ConcurrentHashMap<>();
     // Stopping kills agents; never do that on an agent's own thread.
@@ -43,14 +45,15 @@ public final class PerformanceServer implements AutoCloseable {
         return thread;
     });
 
-    private PerformanceServer(EnsembleRuntime runtime, ServerLimits limits, int httpPort) {
+    private PerformanceServer(EnsembleRuntime runtime, ServerLimits limits, List<SoloOption> soloOptions, int httpPort) {
         this.runtime = runtime;
         this.limits = limits;
+        this.soloOptions = List.copyOf(soloOptions);
         this.app = Javalin.create(config -> config.staticFiles.add("/public", Location.CLASSPATH));
         app.ws("/ws", ws -> {
             ws.onConnect(ctx -> {
                 ctx.session.setIdleTimeout(Duration.ofMinutes(30));
-                ctx.send(Wire.hello(System.currentTimeMillis()));
+                ctx.send(Wire.hello(System.currentTimeMillis(), this.soloOptions));
             });
             ws.onMessage(ctx -> handle(ctx, Wire.MAPPER.readTree(ctx.message())));
             ws.onClose(ctx -> stop(ctx.sessionId()));
@@ -64,7 +67,12 @@ public final class PerformanceServer implements AutoCloseable {
     }
 
     public static PerformanceServer start(int httpPort, int jadePort, ServerLimits limits) {
-        return new PerformanceServer(EnsembleRuntime.start(jadePort), limits, httpPort);
+        return start(httpPort, jadePort, limits, List.of(SoloOption.rules()));
+    }
+
+    /** @param soloOptions the ways of writing solos a browser may choose from; the first is the default */
+    public static PerformanceServer start(int httpPort, int jadePort, ServerLimits limits, List<SoloOption> soloOptions) {
+        return new PerformanceServer(EnsembleRuntime.start(jadePort), limits, soloOptions, httpPort);
     }
 
     public int port() {
@@ -95,6 +103,12 @@ public final class PerformanceServer implements AutoCloseable {
             ctx.send(Wire.error("start", "song must be '" + Songs.BLUES + "' or '" + Songs.SONG_1 + "'"));
             return;
         }
+        String soloId = message.path("soloComposer").asText(soloOptions.get(0).id());
+        SoloOption soloOption = soloOptions.stream().filter(option -> option.id().equals(soloId)).findFirst().orElse(null);
+        if (soloOption == null) {
+            ctx.send(Wire.error("start", "soloComposer must be one of " + String.join(", ", soloOptions.stream().map(SoloOption::id).toList())));
+            return;
+        }
         String ensemble = message.path("ensemble").asText("quartet");
         if (!ensemble.equals("quartet") && !ensemble.equals("duo")) {
             ctx.send(Wire.error("start", "ensemble must be 'quartet' or 'duo'"));
@@ -118,7 +132,7 @@ public final class PerformanceServer implements AutoCloseable {
                 ? SessionConfig.duo(sessionId, song, soloChoruses)
                 : SessionConfig.quartet(sessionId, song, soloChoruses);
         toBrowser.send(Wire.song(songId, song)); // before the band starts, so the chart is ready for the first note
-        running.put(ctx.sessionId(), runtime.perform(session, sink));
+        running.put(ctx.sessionId(), runtime.perform(session, sink, soloOption.composers()));
     }
 
     /** Passes a Conductor command (tempo, volume, mute, unmute) to the performance this browser started. */

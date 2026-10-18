@@ -67,6 +67,34 @@ test('the server offers its tunes, and the page previews the chart of the one ch
   assert.deepEqual(chartRows().map((row) => findAll(row, withClass('bar')).length), [4, 4, 2]);
 });
 
+test('the server offers ways of writing solos, and a learned one is credited to its data', async () => {
+  assert.equal(page.credit.hidden, true, 'nothing to credit for the hand-written rules');
+  socket.receive({ type: 'hello', serverMs: Date.now(), songs: [BLUES, SONG1], soloComposers: [
+    { id: 'rules', label: 'Rules (hand-written)', credit: '' },
+    { id: 'markov', label: 'Markov model (learned from jazz solos)', credit: 'Solos learned from 200 transcribed solos of the Weimar Jazz Database, used under the ODbL.' },
+  ] });
+  assert.deepEqual(page.soloComposer.children.map((o) => [o.value, o.textContent]),
+    [['rules', 'Rules (hand-written)'], ['markov', 'Markov model (learned from jazz solos)']]);
+  assert.equal(page.soloComposer.value, 'rules');
+  assert.equal(page.credit.hidden, true);
+
+  page.soloComposer.value = 'markov';
+  await page.soloComposer.fire('change');
+  assert.equal(page.credit.hidden, false);
+  assert.match(page.credit.textContent, /Weimar Jazz Database.*ODbL/);
+
+  page.soloComposer.value = 'rules';
+  await page.soloComposer.fire('change');
+  assert.equal(page.credit.hidden, true);
+  assert.equal(page.credit.textContent, '');
+});
+
+test('a server that offers only the rules leaves the menu as it was', () => {
+  const before = page.soloComposer.children.length;
+  socket.receive({ type: 'hello', serverMs: Date.now(), songs: [BLUES, SONG1] }); // an older server: no soloComposers at all
+  assert.equal(page.soloComposer.children.length, before);
+});
+
 test('choosing a smaller band dims the musicians who will not play', async () => {
   page.ensemble.value = 'duo';
   await page.ensemble.fire('change');
@@ -81,7 +109,7 @@ test('pressing Start sends the performance to the server and gets the mixing con
   page.soloChoruses.value = '2';
   await page.start.fire('click');
 
-  assert.deepEqual(sentOfType('start'), [{ type: 'start', song: 'song1', tempo: 140, soloChoruses: 2, ensemble: 'quartet' }]);
+  assert.deepEqual(sentOfType('start'), [{ type: 'start', song: 'song1', soloComposer: 'rules', tempo: 140, soloChoruses: 2, ensemble: 'quartet' }]);
   assert.equal(page.stop.disabled, false);
   assert.equal(page.start.disabled, true);
   assert.ok(['SAX', 'PIANO', 'BASS', 'DRUMS'].every((i) => !part(i, 'mute').disabled));

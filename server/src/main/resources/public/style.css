@@ -51,6 +51,7 @@ button { padding: .5rem 1.1rem; font: inherit; border: 1px solid var(--line); bo
 button.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 
+.credit { margin: .25rem .25rem .5rem; max-width: 52rem; font-size: .85rem; line-height: 1.4; color: var(--muted); }
 .status { min-height: 1.6rem; margin: .5rem .25rem; font-size: 1.15rem; font-weight: 600; }
 
 /* ---- the band ---- */

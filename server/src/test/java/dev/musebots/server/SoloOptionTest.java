@@ -1,0 +1,81 @@
+package dev.musebots.server;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import dev.musebots.learning.Corpus;
+import dev.musebots.learning.MarkovModel;
+import dev.musebots.learning.TickNote;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class SoloOptionTest {
+
+    /** A model that has only ever seen eight eighths a bar, so what it plays is easy to recognise. */
+    static MarkovModel eighthsModel() {
+        List<TickNote> notes = new ArrayList<>();
+        int pitch = 65;
+        for (int i = 0; i < 16 * 8; i++) {
+            notes.add(new TickNote(i * 6, 6, pitch));
+            pitch = pitch >= 76 ? 65 : pitch + 1;
+        }
+        Corpus.Solo solo = new Corpus.Solo("a", "Player", "Tune", "as", "BEBOP", "SWING", "F-maj", 120.0, 4,
+                List.of(new Corpus.ChordChange(0, "F7")), notes);
+        return MarkovModel.train(List.of(solo), new MarkovModel.Meta("test", List.of("as"), 0, 0, 3, 1, List.of("a"), List.of()));
+    }
+
+    private final ByteArrayOutputStream logBytes = new ByteArrayOutputStream();
+    private final PrintStream log = new PrintStream(logBytes, true, StandardCharsets.UTF_8);
+
+    private String logged() {
+        return logBytes.toString(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void withoutAModelOnlyTheHandWrittenRulesAreOffered() {
+        for (String path : new String[] {null, "", "   "}) {
+            List<SoloOption> offered = SoloOption.offered(path, log);
+            assertEquals(List.of("rules"), offered.stream().map(SoloOption::id).toList());
+            assertEquals("", offered.get(0).credit(), "the rules have no data to credit");
+        }
+        assertEquals("", logged());
+    }
+
+    @Test
+    void aModelThatLoadsIsOfferedAfterTheRulesWithItsDataCredited(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("model.json");
+        eighthsModel().write(file);
+
+        List<SoloOption> offered = SoloOption.offered(file.toString(), log);
+        assertEquals(List.of("rules", "markov"), offered.stream().map(SoloOption::id).toList(), "the rules stay the default");
+        assertTrue(offered.get(1).credit().contains("Weimar Jazz Database"));
+        assertTrue(offered.get(1).credit().contains("ODbL"));
+        assertTrue(offered.get(1).credit().contains("1 transcribed solos"), offered.get(1).credit());
+        assertTrue(logged().contains("Solo model loaded: learned from 1 solos"));
+    }
+
+    @Test
+    void aModelThatIsMissingIsReportedAndTheBandStillPlaysWithTheRules(@TempDir Path dir) {
+        List<SoloOption> offered = SoloOption.offered(dir.resolve("nothing-here.json").toString(), log);
+        assertEquals(List.of("rules"), offered.stream().map(SoloOption::id).toList());
+        assertTrue(logged().contains("Could not load the solo model"));
+        assertTrue(logged().contains("offering the rules only"));
+    }
+
+    @Test
+    void aModelThatIsNotAModelIsReportedToo(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("broken.json");
+        Files.writeString(file, "this is not json");
+        List<SoloOption> offered = SoloOption.offered(file.toString(), log);
+        assertEquals(List.of("rules"), offered.stream().map(SoloOption::id).toList());
+        assertTrue(logged().contains("Could not load the solo model"));
+    }
+}

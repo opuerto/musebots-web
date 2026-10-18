@@ -3,6 +3,7 @@ package dev.musebots.server;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.musebots.core.ConversationEvent;
+import java.util.List;
 import dev.musebots.core.NoteEvent;
 import dev.musebots.core.PerformanceEvent;
 import dev.musebots.core.Section;
@@ -86,8 +87,12 @@ final class Wire {
     }
 
     /** The first message of a connection: the server's clock, and the tunes on offer so the page can preview them. */
-    static String hello(long serverMs) {
+    static String hello(long serverMs, List<SoloOption> soloOptions) {
         ObjectNode node = MAPPER.createObjectNode().put("type", "hello").put("serverMs", serverMs);
+        var composers = node.putArray("soloComposers");
+        for (SoloOption option : soloOptions) {
+            composers.addObject().put("id", option.id()).put("label", option.label()).put("credit", option.credit());
+        }
         var songs = node.putArray("songs");
         for (String id : Songs.IDS) {
             songs.add(songNode(id, Songs.byId(id, 120)));

@@ -256,6 +256,73 @@ class PerformanceServerTest {
     }
 
     @Test
+    void helloOffersTheRulesAsTheOnlyWayOfSoloingWhenThereIsNoModel() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            waitFor(() -> !client.ofType("hello").isEmpty(), 5_000);
+            JsonNode composers = client.ofType("hello").get(0).path("soloComposers");
+            assertEquals(1, composers.size());
+            assertEquals("rules", composers.get(0).path("id").asText());
+            assertEquals("", composers.get(0).path("credit").asText());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void rejectsASoloComposerThatIsNotOffered() throws Exception {
+        Client client = new Client();
+        WebSocket socket = connect(client);
+        try {
+            socket.sendText("{\"type\":\"start\",\"soloComposer\":\"markov\"}", true).join();
+            waitFor(() -> !client.ofType("error").isEmpty(), 5_000);
+            assertEquals(List.of("start: soloComposer must be one of rules"), errors(client));
+            assertTrue(client.ofType("song").isEmpty());
+        } finally {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        }
+    }
+
+    @Test
+    void aPerformanceCanBeGivenSolosFromTheLearnedModel() throws Exception {
+        PerformanceServer withModel = PerformanceServer.start(0, freePort(), new ServerLimits(60, 960, 2),
+                List.of(SoloOption.rules(), SoloOption.markov(SoloOptionTest.eighthsModel(), 1.0)));
+        try {
+            Client client = new Client();
+            WebSocket socket = HttpClient.newHttpClient().newWebSocketBuilder()
+                    .buildAsync(URI.create("ws://localhost:" + withModel.port() + "/ws"), client).join();
+            try {
+                waitFor(() -> !client.ofType("hello").isEmpty(), 5_000);
+                JsonNode composers = client.ofType("hello").get(0).path("soloComposers");
+                assertEquals(List.of("rules", "markov"), java.util.stream.StreamSupport.stream(composers.spliterator(), false)
+                        .map(c -> c.path("id").asText()).toList());
+                assertTrue(composers.get(1).path("credit").asText().contains("Weimar Jazz Database"));
+
+                socket.sendText("{\"type\":\"start\",\"tempo\":960,\"ensemble\":\"duo\",\"soloComposer\":\"markov\"}", true).join();
+                assertTrue(client.finished.await(60, TimeUnit.SECONDS), "performance did not finish");
+                assertEquals("FINISHED", client.ofType("status").stream().reduce((a, b) -> b).orElseThrow().path("kind").asText());
+                assertEquals(List.of(), errors(client));
+
+                // The model only ever played eight eighths a bar, so a twelve-bar solo by it has 96 notes, where the
+                // hand-written rules write a different number every time.
+                List<JsonNode> parts = parts(client);
+                JsonNode bassSolo = parts.stream().filter(p -> "bass solo".equals(p.path("label").asText())).findFirst().orElseThrow();
+                List<JsonNode> soloNotes = client.ofType("note").stream()
+                        .filter(n -> "BASS".equals(n.path("instrument").asText()))
+                        .filter(n -> n.path("startMs").asLong() >= bassSolo.path("startMs").asLong()
+                                && n.path("startMs").asLong() < bassSolo.path("endMs").asLong()).toList();
+                assertEquals(96, soloNotes.size());
+                assertTrue(soloNotes.stream().allMatch(n -> n.path("midi").asInt() >= 36 && n.path("midi").asInt() <= 60), "in the bass register");
+            } finally {
+                socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+            }
+        } finally {
+            withModel.close();
+        }
+    }
+
+    @Test
     void rejectsAnUnknownSong() throws Exception {
         Client client = new Client();
         WebSocket socket = connect(client);

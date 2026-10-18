@@ -4,6 +4,7 @@ plugins {
 
 dependencies {
     implementation(project(":agents"))
+    implementation(project(":learning"))
     implementation("io.javalin:javalin:6.7.0")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.2")
     implementation("org.slf4j:slf4j-simple:2.0.16")
@@ -11,6 +12,11 @@ dependencies {
 
 application {
     mainClass = "dev.musebots.server.Main"
+}
+
+// Run from the repository root, so MARKOV_MODEL=data/markov-sax.json means the same thing here as in a terminal.
+tasks.named<JavaExec>("run") {
+    workingDir = rootProject.projectDir
 }
 
 // The browser code is tested with Node's built-in test runner (no npm install needed). It runs as part of `test` so a

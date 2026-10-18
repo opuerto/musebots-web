@@ -41,6 +41,11 @@
           <option value="duo">Duo (piano and bass)</option>
         </select>
       </label>
+      <label>Solos
+        <select id="soloComposer">
+          <option value="rules" selected>Rules (hand-written)</option>
+        </select>
+      </label>
       <label>Tempo <input id="tempo" type="range" min="60" max="200" value="120"> <output id="tempoOut">120</output> bpm</label>
       <label>Solo choruses <input id="soloChoruses" type="number" min="1" max="2" value="1"></label>
       <div class="buttons">
@@ -48,6 +53,8 @@
         <button id="stop" disabled>Stop</button>
       </div>
     </section>
+
+    <p id="credit" class="credit" hidden></p>
 
     <p id="status" class="status now">Connecting…</p>
 

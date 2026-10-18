@@ -67,6 +67,7 @@ export function installDocument() {
   // The page starts with the first option of each menu selected.
   elements.song.value = 'blues';
   elements.ensemble.value = 'quartet';
+  elements.soloComposer.value = 'rules';
   globalThis.document = {
     getElementById: (id) => elements[id],
     createElement: (tag) => new FakeElement(tag),

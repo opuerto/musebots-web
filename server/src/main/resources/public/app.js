@@ -16,6 +16,8 @@ const ENSEMBLES = { quartet: ['SAX', 'PIANO', 'BASS', 'DRUMS'], duo: ['PIANO', '
 
 const els = {
   song: document.getElementById('song'),
+  soloComposer: document.getElementById('soloComposer'),
+  credit: document.getElementById('credit'),
   tempo: document.getElementById('tempo'),
   tempoOut: document.getElementById('tempoOut'),
   soloChoruses: document.getElementById('soloChoruses'),
@@ -40,6 +42,7 @@ let performing = false;
 let renderTimer = null;
 
 let catalogue = {}; // the tunes the server offers, by id
+let soloOptions = {}; // the ways of writing solos the server offers, by id
 let song = null; // the tune being played (or previewed)
 let chart = null;
 let segments = []; // the parts of the tune announced so far
@@ -88,6 +91,7 @@ function handle(message) {
   switch (message.type) {
     case 'hello':
       catalogue = Object.fromEntries((message.songs ?? []).map((tune) => [tune.id, tune]));
+      offerSoloComposers(message.soloComposers ?? []);
       preview();
       break;
     case 'time.sync': {
@@ -140,6 +144,26 @@ function showSong(tune) {
   els.songTitle.textContent = tune.title;
   chart = buildChart(els.chart, tune);
   chart.update(null);
+}
+
+/** Lists the ways of writing solos the server offers (the first is the default) and credits the data of a learned one. */
+function offerSoloComposers(options) {
+  if (!options.length) return;
+  soloOptions = Object.fromEntries(options.map((option) => [option.id, option]));
+  els.soloComposer.replaceChildren(...options.map((option) => {
+    const entry = document.createElement('option');
+    entry.value = option.id;
+    entry.textContent = option.label;
+    return entry;
+  }));
+  els.soloComposer.value = options[0].id;
+  showCredit();
+}
+
+function showCredit() {
+  const credit = soloOptions[els.soloComposer.value]?.credit ?? '';
+  els.credit.textContent = credit;
+  els.credit.hidden = !credit;
 }
 
 /** Before the band starts, show the chart of the chosen tune. */
@@ -235,6 +259,7 @@ els.tempo.addEventListener('input', () => { els.tempoOut.textContent = els.tempo
 // Before the start this chooses the tempo; during a performance it is the Conductor changing it.
 els.tempo.addEventListener('change', () => { if (performing) conduct('tempo', { value: Number(els.tempo.value) }); });
 els.song.addEventListener('change', preview);
+els.soloComposer.addEventListener('change', showCredit);
 els.ensemble.addEventListener('change', () => { if (!performing) stage.setBand(ENSEMBLES[els.ensemble.value]); });
 
 els.start.addEventListener('click', async () => {
@@ -254,6 +279,7 @@ els.start.addEventListener('click', async () => {
   socket.send(JSON.stringify({
     type: 'start',
     song: els.song.value,
+    soloComposer: els.soloComposer.value,
     tempo: Number(els.tempo.value),
     soloChoruses: Number(els.soloChoruses.value),
     ensemble: els.ensemble.value,
