@@ -8,3 +8,10 @@ out/
 # Written by JADE into the working directory whenever a platform starts
 APDescription.txt
 MTPs-*.txt
+
+# Data and models made from the Weimar Jazz Database (ODbL): keep them out of the repository unless you may share them
+data/
+
+# Python bytecode from the corpus script tests
+__pycache__/
+*.pyc
