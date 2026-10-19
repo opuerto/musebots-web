@@ -93,7 +93,10 @@ final class Wire {
         ObjectNode node = MAPPER.createObjectNode().put("type", "hello").put("serverMs", serverMs);
         var composers = node.putArray("soloComposers");
         for (SoloOption option : soloOptions) {
-            composers.addObject().put("id", option.id()).put("label", option.label()).put("credit", option.credit());
+            ObjectNode entry = composers.addObject().put("id", option.id()).put("label", option.label()).put("credit", option.credit());
+            if (!option.downloads().isEmpty()) {
+                entry.put("models", "/models");
+            }
         }
         var songs = node.putArray("songs");
         for (String id : Songs.IDS) {

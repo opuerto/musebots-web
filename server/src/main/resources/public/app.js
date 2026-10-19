@@ -226,8 +226,15 @@ function offerSoloComposers(options) {
 }
 
 function showCredit() {
-  const credit = soloOptions[els.soloComposer.value]?.credit ?? '';
+  const option = soloOptions[els.soloComposer.value];
+  const credit = option?.credit ?? '';
   els.credit.textContent = credit;
+  if (option?.models) { // the licence of the data asks that listeners may have the models too
+    const link = document.createElement('a');
+    link.href = option.models;
+    link.textContent = 'Download the models (ODbL)';
+    els.credit.append(' ', link);
+  }
   els.credit.hidden = !credit;
 }
 

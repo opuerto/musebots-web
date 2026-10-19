@@ -7,9 +7,9 @@
 #   PORT               the web port                                    (default 7070)
 #   MAX_PERFORMANCES   how many bands may play at once                 (default 8; each is sixteen agents)
 #   ALLOWED_ORIGINS    extra web origins allowed to connect, comma separated (the site's own pages always may)
-#   MARKOV_MODEL       path of a trained solo model for every instrument, e.g. /app/data/markov-sax.json (mount it as a volume)
 #   MARKOV_MODEL_SAX, MARKOV_MODEL_PIANO, MARKOV_MODEL_BASS, MARKOV_MODEL_DRUMS
-#                      an instrument's own model, used instead of MARKOV_MODEL for it
+#                      an instrument's solo model; by default the ones in models/, which the image includes
+#   MARKOV_MODEL       a model for every instrument without its own
 #   JAVA_OPTS          JVM options; the default uses up to 65% of the container's memory limit
 
 # ---- build ----
@@ -29,10 +29,16 @@ RUN apt-get update \
  && useradd --system --create-home --home-dir /app --uid 10001 musebots
 WORKDIR /app
 COPY --from=build --chown=musebots:musebots /src/server/build/install/server/ ./
+# The learned solo models (ODbL; see models/README.md). A model that is missing is reported and that instrument solos by the rules.
+COPY --chown=musebots:musebots models/ ./models/
 USER musebots
 
 ENV PORT=7070 \
-    JAVA_OPTS="-XX:MaxRAMPercentage=65 -XX:+ExitOnOutOfMemoryError"
+    JAVA_OPTS="-XX:MaxRAMPercentage=65 -XX:+ExitOnOutOfMemoryError" \
+    MARKOV_MODEL_SAX=/app/models/markov-sax.json \
+    MARKOV_MODEL_PIANO=/app/models/markov-piano.json \
+    MARKOV_MODEL_BASS=/app/models/markov-bass.json \
+    MARKOV_MODEL_DRUMS=/app/models/markov-drums.json
 # Only the web port is for the outside. The agent platform's own port (1099) is used inside the container and must not be published.
 EXPOSE 7070
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

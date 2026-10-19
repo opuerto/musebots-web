@@ -132,7 +132,7 @@ test('the server offers ways of writing solos, and a learned one is credited to 
   assert.equal(page.credit.hidden, true, 'nothing to credit for the hand-written rules');
   socket.receive({ type: 'hello', serverMs: Date.now(), songs: [BLUES, SONG1], soloComposers: [
     { id: 'rules', label: 'Rules (hand-written)', credit: '' },
-    { id: 'markov', label: 'Markov model (learned from jazz solos)', credit: 'Solos learned from 200 transcribed solos of the Weimar Jazz Database, used under the ODbL.' },
+    { id: 'markov', label: 'Markov model (learned from jazz solos)', credit: 'Solos learned from 200 transcribed solos of the Weimar Jazz Database, used under the ODbL.', models: '/models' },
   ] });
   assert.deepEqual(page.soloComposer.children.map((o) => [o.value, o.textContent]),
     [['rules', 'Rules (hand-written)'], ['markov', 'Markov model (learned from jazz solos)']]);
@@ -143,6 +143,9 @@ test('the server offers ways of writing solos, and a learned one is credited to 
   await page.soloComposer.fire('change');
   assert.equal(page.credit.hidden, false);
   assert.match(page.credit.textContent, /Weimar Jazz Database.*ODbL/);
+  const download = page.credit.children.find((child) => child.tag === 'a');
+  assert.ok(download, 'the models can be downloaded, as their licence asks');
+  assert.equal(download.href, '/models');
 
   page.soloComposer.value = 'rules';
   await page.soloComposer.fire('change');

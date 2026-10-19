@@ -54,6 +54,10 @@ public final class PerformanceServer implements AutoCloseable {
         return thread;
     });
 
+    static final String MODEL_LICENCE = "These solo models are derived from the Weimar Jazz Database (Jazzomat Research Project, "
+            + "Hochschule für Musik Franz Liszt Weimar, https://jazzomat.hfm-weimar.de/) and are made available under the Open Database "
+            + "License (ODbL) v1.0: https://opendatacommons.org/licenses/odbl/1-0/";
+
     private PerformanceServer(EnsembleRuntime runtime, ServerLimits limits, List<SoloOption> soloOptions, OriginPolicy origins, int httpPort) {
         this.runtime = runtime;
         this.limits = limits;
@@ -62,6 +66,24 @@ public final class PerformanceServer implements AutoCloseable {
         this.app = Javalin.create(config -> config.staticFiles.add("/public", Location.CLASSPATH));
         // For the hosting platform's health check: cheap, and says how busy the band is.
         app.get("/health", ctx -> ctx.json(Map.of("status", "ok", "performances", running.size(), "capacity", limits.maxPerformances())));
+        // The learned models, offered under the licence of the data they were made from: the Open Database License asks that
+        // whoever hears music made from a database derived from it may have that database too (section 4.6).
+        Map<String, java.nio.file.Path> models = new java.util.TreeMap<>();
+        this.soloOptions.forEach(option -> models.putAll(option.downloads()));
+        app.get("/models", ctx -> ctx.json(Map.of(
+                "licence", MODEL_LICENCE,
+                "models", models.keySet().stream().map(name -> "/models/" + name + ".json").toList())));
+        app.get("/models/{file}", ctx -> {
+            String name = ctx.pathParam("file").replaceFirst("\\.json$", "");
+            java.nio.file.Path file = models.get(name); // only the names above, so nothing else on the disk can be asked for
+            if (file == null) {
+                ctx.status(404).result("no such model");
+                return;
+            }
+            ctx.contentType("application/json")
+                    .header("Content-Disposition", "attachment; filename=\"musebots-markov-" + name + ".json\"")
+                    .result(java.nio.file.Files.newInputStream(file));
+        });
         app.ws("/ws", ws -> {
             ws.onConnect(ctx -> {
                 if (!origins.allows(ctx.header("Origin"), ctx.header("Host"))) {

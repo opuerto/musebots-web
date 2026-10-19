@@ -27,11 +27,12 @@ Settings are environment variables, all optional:
 | `MAX_PERFORMANCES` | 8 | how many bands may play at once; each is sixteen agents, so this protects the server's memory. Extra visitors are asked to try again |
 | `ALLOWED_ORIGINS` | none | extra web origins allowed to open the WebSocket, comma separated. Pages served by the server itself always may; other sites are refused (a browser does not stop a WebSocket from being opened from another site, so the server checks) |
 | `MARKOV_MODEL` | none | path of a trained solo model, for every instrument; see "Learning solos from real jazz" |
-| `MARKOV_MODEL_SAX`, `_PIANO`, `_BASS`, `_DRUMS` | none | an instrument's own model, used instead of `MARKOV_MODEL` for that instrument (an instrument with neither solos by the rules) |
+| `MARKOV_MODEL_SAX`, `_PIANO`, `_BASS`, `_DRUMS` | none (the image: the files in `models/`) | an instrument's own model, used instead of `MARKOV_MODEL` for that instrument (an instrument with neither solos by the rules) |
 
 `GET /health` answers `{"status":"ok","performances":0,"capacity":8}` for uptime checks and the hosting platform.
+`GET /models` lists the learned models the server plays from, and `/models/sax.json` (and so on) downloads one, under the ODbL.
 
-**Putting it on a public domain:** the repository has a `Dockerfile` that builds one image serving the page and the agents; set `PORT`, `MAX_PERFORMANCES` and, if needed, `ALLOWED_ORIGINS` as above, and point a health check at `/health`. The step-by-step guide for deploying with Coolify is kept outside the repository.
+**Putting it on a public domain:** the repository has a `Dockerfile` that builds one image serving the page, the agents and the learned models in `models/`; set `PORT`, `MAX_PERFORMANCES` and, if needed, `ALLOWED_ORIGINS` as above, and point a health check at `/health`. `cloudflare/` deploys that image to Cloudflare Containers (see `docs/DEPLOY-cloudflare.md`). The step-by-step guide for deploying with Coolify is kept outside the repository.
 
 ## The page
 
@@ -281,9 +282,10 @@ neural network has to beat, and without it there is nothing to say a network hel
 
 [The Weimar Jazz Database](https://jazzomat.hfm-weimar.de/download/download.html) (Jazzomat Research Project, Hochschule für Musik
 Franz Liszt Weimar): 456 transcribed solos, with the chords. It is released under the **Open Data Commons Open Database License
-(ODbL)**: credit it, and share a database you publish that is derived from it under the same terms. Do not commit the data or
-anything made from it unless you may share it; `data/` is ignored by git for that reason. The page credits the data whenever the
-learned solos are selected.
+(ODbL)**: credit it, and share a database you publish that is derived from it under the same terms. The corpus and the training
+work stay in `data/`, which git ignores. The trained models the band plays from are in `models/`, under the ODbL (`models/README.md`):
+a site whose music is made from them must offer them, so the server serves them at `/models`, and the page credits the data and
+links to the download whenever the learned solos are selected.
 
 ### Running it
 

@@ -300,6 +300,46 @@ class PerformanceServerTest {
     }
 
     @Test
+    void offersTheLearnedModelsForDownloadUnderTheirDataLicence(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path file = dir.resolve("markov-sax.json");
+        SoloOptionTest.eighthsModel().write(file);
+        List<SoloOption> offered = SoloOption.offered(java.util.Map.of("MARKOV_MODEL_SAX", file.toString())::get,
+                new java.io.PrintStream(java.io.OutputStream.nullOutputStream()));
+        PerformanceServer withModel = PerformanceServer.start(0, freePort(), new ServerLimits(60, 960, 2), offered);
+        try {
+            HttpClient http = HttpClient.newHttpClient();
+            java.util.function.Function<String, HttpResponse<String>> fetch = path -> {
+                try {
+                    return http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + withModel.port() + path)).build(),
+                            HttpResponse.BodyHandlers.ofString());
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            };
+            HttpResponse<String> index = fetch.apply("/models");
+            assertEquals(200, index.statusCode());
+            assertTrue(index.body().contains("Open Database License"), index.body());
+            assertTrue(index.body().contains("/models/sax.json"), "only the sax has a model: " + index.body());
+
+            HttpResponse<String> sax = fetch.apply("/models/sax.json");
+            assertEquals(200, sax.statusCode());
+            assertEquals(java.nio.file.Files.readString(file), sax.body());
+            assertTrue(sax.headers().firstValue("Content-Disposition").orElse("").contains("attachment"));
+
+            assertEquals(404, fetch.apply("/models/piano.json").statusCode(), "the piano solos by the rules: no model to offer");
+            int traversal = fetch.apply("/models/..%2F..%2Fetc%2Fpasswd").statusCode();
+            assertTrue(traversal == 400 || traversal == 404, "nothing but the models can be asked for: " + traversal);
+        } finally {
+            withModel.close();
+        }
+    }
+
+    @Test
+    void withoutAModelThereIsNothingToDownload() throws Exception {
+        assertEquals("[]", Wire.MAPPER.readTree(get("/models").body()).path("models").toString());
+    }
+
+    @Test
     void aPerformanceCanBeGivenSolosFromTheLearnedModel() throws Exception {
         PerformanceServer withModel = PerformanceServer.start(0, freePort(), new ServerLimits(60, 960, 2),
                 List.of(SoloOption.rules(), SoloOption.markov(SoloOptionTest.eighthsModel(), 1.0)));

@@ -19,9 +19,18 @@ import java.util.function.Function;
 
 /**
  * A way of writing the solos that a performance can be given. {@code credit} says where a learned model's data came from;
- * it is empty for the hand-written rules.
+ * it is empty for the hand-written rules. {@code downloads} are the model files it plays from, by instrument
+ * ({@code "sax"}...), which the server offers under the licence of their data.
  */
-public record SoloOption(String id, String label, String credit, ComposerFactory composers) {
+public record SoloOption(String id, String label, String credit, ComposerFactory composers, Map<String, Path> downloads) {
+
+    public SoloOption {
+        downloads = Map.copyOf(downloads);
+    }
+
+    public SoloOption(String id, String label, String credit, ComposerFactory composers) {
+        this(id, label, credit, composers, Map.of());
+    }
 
     public static final String RULES = "rules";
     public static final String MARKOV = "markov";
@@ -51,11 +60,17 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
      * model plays its solos by the rules.
      */
     public static SoloOption markov(Map<Instrument, MarkovModel> models, double temperature) {
+        return markov(models, Map.of(), temperature);
+    }
+
+    /** As above, with the files the models were read from, so they can be offered for download. */
+    public static SoloOption markov(Map<Instrument, MarkovModel> models, Map<String, Path> files, double temperature) {
         Set<MarkovModel> distinct = Collections.newSetFromMap(new IdentityHashMap<>()); // one model may play several instruments
         distinct.addAll(models.values());
         int solos = distinct.stream().mapToInt(model -> model.meta().solos()).sum();
         String credit = "Solos learned from " + solos + " transcribed solos of the Weimar Jazz Database "
-                + "(Jazzomat Research Project, Hochschule für Musik Franz Liszt Weimar), used under the Open Database License (ODbL).";
+                + "(Jazzomat Research Project, Hochschule für Musik Franz Liszt Weimar), used under the Open Database License (ODbL)."
+                + (files.isEmpty() ? "" : " The models are free to download under the same licence.");
         Map<Instrument, MarkovModel> chosen = new EnumMap<>(Instrument.class);
         chosen.putAll(models);
         ComposerFactory factory = (instrument, random) -> {
@@ -64,7 +79,7 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
                     ? ComposerFactory.rules().create(instrument, random)
                     : SoloModelComposer.wrap(ComposerFactory.rules().create(instrument, random), model, random, temperature);
         };
-        return new SoloOption(MARKOV, "Markov model (learned from jazz solos)", credit, factory);
+        return new SoloOption(MARKOV, "Markov model (learned from jazz solos)", credit, factory, files);
     }
 
     /** The variable naming one instrument's own model, such as {@code MARKOV_MODEL_PIANO}. */
@@ -87,11 +102,15 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
         Map<String, MarkovModel> loaded = new HashMap<>(); // by path, so a file named twice is read once
         MarkovModel shared = load(environment.apply(MODEL_VARIABLE), "", loaded, log);
         Map<Instrument, MarkovModel> models = new EnumMap<>(Instrument.class);
+        Map<String, Path> files = new java.util.TreeMap<>();
         for (Instrument instrument : Instrument.values()) {
-            MarkovModel own = load(environment.apply(modelVariable(instrument)), " for the " + instrument.name().toLowerCase(Locale.ROOT), loaded, log);
+            String name = instrument.name().toLowerCase(Locale.ROOT);
+            String ownPath = environment.apply(modelVariable(instrument));
+            MarkovModel own = load(ownPath, " for the " + name, loaded, log);
             MarkovModel model = own != null ? own : shared;
             if (model != null) {
                 models.put(instrument, model);
+                files.put(name, Path.of(own != null ? ownPath : environment.apply(MODEL_VARIABLE)));
             }
         }
         if (models.isEmpty()) {
@@ -100,7 +119,7 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
             }
             return List.of(rules());
         }
-        return List.of(rules(), markov(models, SOLO_TEMPERATURE));
+        return List.of(rules(), markov(models, files, SOLO_TEMPERATURE));
     }
 
     private static boolean anyNamed(Function<String, String> environment) {
