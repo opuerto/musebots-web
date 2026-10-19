@@ -30,8 +30,7 @@ Settings are environment variables, all optional:
 
 `GET /health` answers `{"status":"ok","performances":0,"capacity":8}` for uptime checks and the hosting platform.
 
-**Putting it on a public domain:** the repository has a `Dockerfile` and [a step-by-step guide for deploying with Coolify](docs/DEPLOY.md)
-(which also covers Fly.io, Railway and Render, and why Netlify and Vercel do not fit).
+**Putting it on a public domain:** the repository has a `Dockerfile` that builds one image serving the page and the agents; set `PORT`, `MAX_PERFORMANCES` and, if needed, `ALLOWED_ORIGINS` as above, and point a health check at `/health`. The step-by-step guide for deploying with Coolify is kept outside the repository.
 
 ## The page
 

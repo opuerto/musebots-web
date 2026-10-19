@@ -451,6 +451,7 @@ input[type=range] { width: 100%; height: 2.5rem; margin: 0; accent-color: var(--
 .toc a:hover { color: var(--ink); border-left-color: var(--primary); }
 
 .about-content { display: grid; gap: var(--space-4); min-width: 0; }
+.about-video { display: block; width: 100%; height: auto; border-radius: var(--radius, 12px); background: #000; }
 .block { padding: var(--space-5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-xl); }
 .block h2 { margin: 0 0 var(--space-3); font-size: var(--text-2xl); font-weight: 800; letter-spacing: -.03em; }
 .block h3 { margin: 0; font-size: var(--text-lg); font-weight: 700; letter-spacing: -.01em; }
