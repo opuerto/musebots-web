@@ -13,8 +13,15 @@ public record Selection(Set<String> instruments, double minTempo, double maxTemp
     public static final Selection ALL = new Selection(Set.of(), 0, Double.MAX_VALUE, 20);
 
     private static final Set<String> SAX = Set.of("as", "ts", "ss", "bs", "ts-c");
+    /** The database has only a handful of piano solos, so the piano learns from the other chord instruments' lines too. */
+    private static final Set<String> KEYS = Set.of("p", "vib", "g");
+    /** The database has no bass solos: the bass learns from the lowest horns, whose lines sit nearest its register. */
+    private static final Set<String> LOW = Set.of("tb", "bs", "bcl");
 
-    /** An instrument group ("sax", "trumpet", "trombone", "clarinet", "all") or a comma-separated list of the database's codes. */
+    /**
+     * An instrument group ("sax", "trumpet", "trombone", "clarinet", "keys", "low", "all") or a comma-separated list of the
+     * database's codes.
+     */
     public static Set<String> instrumentsNamed(String name) {
         String key = name == null ? "all" : name.trim().toLowerCase(Locale.ROOT);
         return switch (key) {
@@ -23,6 +30,8 @@ public record Selection(Set<String> instruments, double minTempo, double maxTemp
             case "trumpet" -> Set.of("tp", "cor");
             case "trombone" -> Set.of("tb");
             case "clarinet" -> Set.of("cl", "bcl");
+            case "keys" -> KEYS;
+            case "low" -> LOW;
             default -> Arrays.stream(key.split(",")).map(String::trim).collect(Collectors.toUnmodifiableSet());
         };
     }

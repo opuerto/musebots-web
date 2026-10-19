@@ -21,6 +21,8 @@ class SelectionAndSplitTest {
     void groupsOfInstrumentsAreNamedAsMusiciansNameThem() {
         assertEquals(Set.of("as", "ts", "ss", "bs", "ts-c"), Selection.instrumentsNamed("sax"));
         assertEquals(Set.of("tp", "cor"), Selection.instrumentsNamed("Trumpet"));
+        assertEquals(Set.of("p", "vib", "g"), Selection.instrumentsNamed("keys"), "what the piano learns from");
+        assertEquals(Set.of("tb", "bs", "bcl"), Selection.instrumentsNamed("low"), "what the bass learns from");
         assertEquals(Set.of(), Selection.instrumentsNamed("all"));
         assertEquals(Set.of(), Selection.instrumentsNamed(null));
         assertEquals(Set.of("as", "vib"), Selection.instrumentsNamed("as, vib"));

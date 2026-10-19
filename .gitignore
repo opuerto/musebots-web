@@ -15,3 +15,7 @@ data/
 # Python bytecode from the corpus script tests
 __pycache__/
 *.pyc
+
+# Cloudflare deployment tooling
+cloudflare/node_modules/
+cloudflare/.wrangler/

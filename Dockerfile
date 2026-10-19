@@ -7,7 +7,9 @@
 #   PORT               the web port                                    (default 7070)
 #   MAX_PERFORMANCES   how many bands may play at once                 (default 8; each is sixteen agents)
 #   ALLOWED_ORIGINS    extra web origins allowed to connect, comma separated (the site's own pages always may)
-#   MARKOV_MODEL       path of a trained solo model, e.g. /app/data/markov-sax.json (mount it as a volume)
+#   MARKOV_MODEL       path of a trained solo model for every instrument, e.g. /app/data/markov-sax.json (mount it as a volume)
+#   MARKOV_MODEL_SAX, MARKOV_MODEL_PIANO, MARKOV_MODEL_BASS, MARKOV_MODEL_DRUMS
+#                      an instrument's own model, used instead of MARKOV_MODEL for it
 #   JAVA_OPTS          JVM options; the default uses up to 65% of the container's memory limit
 
 # ---- build ----

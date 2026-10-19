@@ -2,10 +2,10 @@ package dev.musebots.learning;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.musebots.core.Composers;
+import dev.musebots.core.DrumComposer;
 import dev.musebots.core.Instrument;
 import dev.musebots.core.MusicClock;
 import dev.musebots.core.NoteEvent;
@@ -16,6 +16,7 @@ import dev.musebots.core.Songs;
 import dev.musebots.core.Swing;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class SoloModelComposerTest {
@@ -112,14 +113,28 @@ class SoloModelComposerTest {
     }
 
     @Test
-    void theDrumsDoNotPlayALineSoTheyAreLeftAlone() {
-        PhraseComposer drums = Composers.defaultFor(Instrument.DRUMS, new Random(1));
-        assertSame(drums, SoloModelComposer.wrap(drums, EIGHTHS, new Random(1), 1.0));
+    void theDrumsPlayTheLearnedRhythmOnTheKit() {
+        PhraseRequest request = request(PhraseKind.SOLO, 12);
+        List<NoteEvent> solo = composer(Instrument.DRUMS, 9).compose(request);
+        assertNotEquals(Composers.defaultFor(Instrument.DRUMS, new Random(9)).compose(request), solo);
+        assertTrue(solo.stream().allMatch(n -> n.instrument() == Instrument.DRUMS));
+        assertTrue(solo.stream().allMatch(n -> n.startMs() >= request.startMs() && n.endMs() <= request.endMs()), "outside the phrase");
+
+        // The model only ever saw eight eighths a bar: one stroke on a drum for each, swung.
+        Set<Integer> kit = Set.of(DrumComposer.TOM_FLOOR, DrumComposer.TOM_LOW, DrumComposer.TOM_MID, DrumComposer.SNARE);
+        List<NoteEvent> strokes = solo.stream().filter(n -> kit.contains(n.midi())).toList();
+        assertEquals(96, strokes.size());
+        assertEquals(10_000 + Math.round(Swing.OFFBEAT * 500), strokes.get(1).startMs());
+        assertTrue(strokes.stream().map(NoteEvent::midi).distinct().count() > 1, "the line's rise and fall moves around the kit");
+
+        assertEquals(1, solo.stream().filter(n -> n.midi() == DrumComposer.CRASH).count(), "a crash to open the solo");
+        assertEquals(24, solo.stream().filter(n -> n.midi() == DrumComposer.HI_HAT_PEDAL).count(), "the hi-hat on 2 and 4");
     }
 
     @Test
     void reportsTheInstrumentItPlays() {
         assertEquals(Instrument.SAX, composer(Instrument.SAX, 1).instrument());
         assertEquals(Instrument.BASS, composer(Instrument.BASS, 1).instrument());
+        assertEquals(Instrument.DRUMS, composer(Instrument.DRUMS, 1).instrument());
     }
 }

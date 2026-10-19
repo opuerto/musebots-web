@@ -26,7 +26,8 @@ Settings are environment variables, all optional:
 | `JADE_PORT` | 1099 | the agent platform's own port, used inside the machine only (never publish it) |
 | `MAX_PERFORMANCES` | 8 | how many bands may play at once; each is sixteen agents, so this protects the server's memory. Extra visitors are asked to try again |
 | `ALLOWED_ORIGINS` | none | extra web origins allowed to open the WebSocket, comma separated. Pages served by the server itself always may; other sites are refused (a browser does not stop a WebSocket from being opened from another site, so the server checks) |
-| `MARKOV_MODEL` | none | path of a trained solo model; see "Learning solos from real jazz" |
+| `MARKOV_MODEL` | none | path of a trained solo model, for every instrument; see "Learning solos from real jazz" |
+| `MARKOV_MODEL_SAX`, `_PIANO`, `_BASS`, `_DRUMS` | none | an instrument's own model, used instead of `MARKOV_MODEL` for that instrument (an instrument with neither solos by the rules) |
 
 `GET /health` answers `{"status":"ok","performances":0,"capacity":8}` for uptime checks and the hosting platform.
 
@@ -290,14 +291,30 @@ learned solos are selected.
 # 1. Download wjazzd.db from the page above into data/, and turn it into a plain corpus (Python 3, no packages)
 python3 learning/tools/wjd_to_corpus.py data/wjazzd.db data/corpus.json
 
-# 2. Look at it, train on the saxophone solos (holding out a fifth of the tunes), and evaluate
+# 2. Look at it, train a model for each instrument of the band (holding out a fifth of the tunes), and evaluate
 ./gradlew :learning:run --args="inspect  --corpus data/corpus.json"
-./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-sax.json --instruments sax"
-./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-sax.json --temperatures 0.7,1.0 --report data/report.md"
+./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-sax.json   --instruments sax"
+./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-piano.json --instruments keys"
+./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-bass.json  --instruments low"
+./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-drums.json --instruments all"
+./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-sax.json --temperatures 0.9,1.0 --report data/report.md"
+./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-piano.json --instrument piano"
 
 # 3. Play with it: the page gets a "Solos" menu
-MARKOV_MODEL=data/markov-sax.json ./gradlew :server:run
+MARKOV_MODEL_SAX=data/markov-sax.json MARKOV_MODEL_PIANO=data/markov-piano.json \
+MARKOV_MODEL_BASS=data/markov-bass.json MARKOV_MODEL_DRUMS=data/markov-drums.json ./gradlew :server:run
 ```
+
+`MARKOV_MODEL=data/markov-sax.json` alone still works: that one model then solos on every instrument.
+
+**What each instrument learns from.** The database is mostly horns: it has no bass or drum solos and only six piano solos.
+
+| Band instrument | `--instruments` | Solos in the database (usable) | Why |
+|---|---|---|---|
+| Sax | `sax` (as, ts, ss, bs) | 264 (252) | its own instrument |
+| Piano | `keys` (p, vib, g) | 24 (21) | the six piano solos are too few alone, so the vibraphone and guitar lines join them: the other chord instruments, soloing with one hand's worth of line |
+| Bass | `low` (tb, bs, bcl) | 39 (39) | there are no bass solos; the trombone, baritone sax and bass clarinet play nearest the bass register (the line is put in the bass's own register when it plays) |
+| Drums | `all` | 447 (430) | there are no pitches to learn; the drums take the model's rhythm and phrasing, which every solo teaches |
 
 ### How it works
 
@@ -306,20 +323,32 @@ MARKOV_MODEL=data/markov-sax.json ./gradlew :server:run
   when they are played (`Swing`). Chords are the database's own symbols, read as the three kinds of chord the band knows
   (`ChordSymbols`): a half-diminished chord becomes a minor seventh, an altered dominant a plain dominant.
 - **Model** (`MarkovModel`). It learns *when* the next note comes and *which* note it is separately. The rhythm depends on where the
-  note sits in the bar and the last gap; the pitch is a leap from the previous note, depending on the chord, where the previous note
-  sat **relative to the chord's root** (so one solo over F7 teaches it every dominant chord), whether the beat is strong, and the last
-  leap. Each is a table of counts at several levels of detail; sampling uses the most detailed level seen often enough and backs off to
-  coarser ones. A temperature controls how closely it follows the data.
+  note sits in the bar and the last two gaps; the pitch is a leap from the previous note, depending on the chord, where the previous note
+  sat **relative to the chord's root** (so one solo over F7 teaches it every dominant chord), whether the beat is strong, the last two
+  leaps, and **where the line is in the player's register** (well below the middle of the solo's range up to well above it, so it
+  learns to turn back from the top and the bottom). Each is a table of counts at several levels of detail.
+- **Using every level of detail** (`Blend.INTERPOLATE`). The chances of the next note blend all the levels, from the coarsest up: each
+  level's counts, with the level below worth `minContext` (10) counts for every different outcome seen there. A situation seen often,
+  and always resolved the same way, follows its own counts; one seen once or twice, or that went many ways, leans on what is known
+  of similar situations instead of copying the few times it was seen. (Models used to take only the most detailed level seen three
+  times.) This is what let the more detailed situations help: with the old way they made it worse, because it memorised them.
+- **A memory of its own solo** (`Memory`). Players develop their own ideas: after a figure they have used, they often go on the way
+  they went before. While it solos, the model remembers what it played after every two-note figure of leaps, and of gaps, and takes a
+  share of the next note's chances from that memory (20% for the pitch, 10% for the rhythm). Like a language model's cache, it is
+  learned in the sense that matters: the shares are the ones that best predict held-out solos.
+- A temperature controls how closely it follows the data. The band plays at **0.9**, where its solos come closest to the real ones.
 - **Phrases and landing.** A silence of a beat or more ends a phrase. Both tables also know how far into its phrase the line is, so
   it learns how long phrases run and that a phrase's last note is placed differently from its first. A third table, *landing*,
   records where the last note before a chord change (or the last of a phrase) sits relative to the **coming** chord; its weights are
   multiplied into the leap table's, so the line is drawn toward notes of the chord that follows, with no rule written by hand. And a new phrase
   sometimes **repeats the one before** it (`motifRepeat`, 0.35), the same rhythm and steps with each note moved to the nearest tone of
-  the scale of the chord it now falls on: a motif and its answer. Models trained before this change still load and play, without
-  the landing table (retrain to get it).
-- **In the band** (`SoloModelComposer`). Only the solos change: the sax, piano and bass solo from the model, and everything else
-  (heads, accompaniment, endings, the drums) is as before. The agents are given composers by a `ComposerFactory` and do not know the
-  difference.
+  the scale of the chord it now falls on: a motif and its answer. Models trained before these changes still load and play, without
+  what they did not learn (retrain to get it).
+- **In the band** (`SoloModelComposer`). Only the solos change: every instrument solos from its model, and everything else
+  (heads, accompaniment, endings) is as before. The sax, piano and bass play the model's line in their own register (the piano with
+  soft chords in the left hand). The **drums** play it as a melodic drummer would: the line's rhythm and phrasing as they are, its
+  rise and fall spread over the kit from the floor tom up to the snare, a kick under the first note of each phrase, a crash to open
+  and the hi-hat on 2 and 4. The agents are given composers by a `ComposerFactory` and do not know the difference.
 - **Split by tune, not by solo** (`Split`). Several players recorded the same tune, so a random split would test the model on
   chord changes it had trained on.
 
@@ -330,6 +359,24 @@ solos played over them (`SoloMetrics`): how often strong beats land on chord ton
 the leaps, how dense the playing is, how often a four-interval figure repeats. It also gives the Jensen-Shannon distance between each
 system's distributions (leaps, where notes fall in the beat, pitch against the chord, gaps between notes) and the real ones, and a
 **copy rate**: how much of what it plays is a run of six leaps that also occurs in the training solos.
+
+Those numbers cannot say which of two Markov models has learned more, because a model that counts reproduces what it counted. So
+`evaluate` also measures **how well the model predicts the held-out solos**: for each note a real player played, how likely the model
+thought its rhythm and its leap were, in the situation the player was in, in bits per note (lower is better). `--baseline FILE` scores an
+earlier model the same way (trained with the same `--instruments`, `--test-fraction` and `--seed`, it holds out the same solos). Every
+change to how the model learns was kept or dropped by this measure, on tunes it never saw:
+
+| bits per note on held-out solos (rhythm + pitch) | sax | piano (p, vib, g) | bass (tb, bs, bcl) |
+|---|---:|---:|---:|
+| the model as it was (most detailed level only, `minContext` 3) | 9.29 | 10.85 | 12.43 |
+| + a first, more detailed version of the longer memory and register, the old way | 12.02 | 14.50 | 16.15 |
+| blending every level instead (`minContext` 10, by variety) | 7.88 | 7.52 | 8.33 |
+| + the longer memory and register | 7.85 | 7.47 | 8.31 |
+| + the solo's memory of itself (**the model now**) | **7.72** | **7.19** | **8.21** |
+
+A bit less is the model finding the real note twice as likely, so 9.29 to 7.72 is the real next note about three times as likely as
+before (2^1.57). The longer memory and the register help only a little, and only once the levels are blended. A memory of three-note
+figures did a little worse than two.
 
 Results for the saxophone model (trained on 200 solos; 52 held-out solos on tunes it never saw; three solos per system per tune, at the model's
 temperature 1.0 unless stated). The last four columns are about phrasing and the changes: a *phrase* is a run of notes with no silence of a
@@ -344,6 +391,8 @@ followed by a different chord is already in that chord's scale, or one of its ch
 | Markov, before (T 1.0) | 6.74 | 0.52 | 0.06 | 0.37 | 18.6 | 0.62 | 0.69 | 0.38 | 0.00 | 0.11 |
 | Markov, now (T 1.0) | 6.81 | 0.53 | 0.12 | 0.37 | 19.2 | 0.58 | 0.79 | 0.44 | 0.00 | 0.12 |
 | Markov, now (T 0.7) | 9.46 | 0.56 | 0.24 | 0.22 | 118.9 | 0.69 | 0.79 | 0.43 | 0.03 | 0.25 |
+| **Markov, blended and remembering (T 1.0)** | 7.55 | 0.50 | 0.17 | 0.36 | 23.1 | 0.58 | 0.76 | 0.40 | 0.01 | 0.12 |
+| **Markov, blended and remembering (T 0.9), what the band plays** | 8.41 | 0.52 | 0.21 | 0.32 | 34.3 | 0.62 | 0.74 | 0.39 | 0.01 | 0.15 |
 
 What this does and does not show:
 
@@ -359,7 +408,13 @@ What this does and does not show:
   hits the real figures about as closely as before, from the other side. The table is not wasted: in a small test where the data holds a
   clear lesson, a model with it lands on the next chord's third far more often than the same model without it. But on the real data this
   measure cannot show a big improvement, because the baseline did not leave one.
-- **The motif repeat doubled repeated figures (0.06 to 0.12) but is still half the real 0.25.** Raising `motifRepeat` from 0.3 to 0.5 moved it only from
+- **Blending the levels and remembering its own solo brought the model closest to the real solos yet.** At 0.9 it plays as densely
+  (8.4 notes a bar against 7.9), rests as much (32% against 33%), puts as many strong beats on chord tones (0.52) and as many bars'
+  last notes in the next chord's scale (0.74) as real players, and its repeated figures rose from 0.12 to 0.21 (real: 0.25) through the
+  memory, not a rule. Before, a lower temperature bought repetition only by losing the breaths (118 notes a phrase at 0.7); now 0.9 keeps
+  phrases of 34 notes (real: 28, with a very wide spread). Its copy rate (0.15) is still below the real solos' own (0.26): it is not
+  playing back the training solos.
+- **Earlier: the motif repeat doubled repeated figures (0.06 to 0.12) but left them at half the real 0.25.** Raising `motifRepeat` from 0.3 to 0.5 moved it only from
   0.12 to 0.14, so the limit is how few phrases a solo has to repeat, not the setting. At temperature 0.7 the model repeats a lot (0.24) but hardly ever
   breathes (118 notes to a phrase): sticking to the most likely rhythm leaves out the rests.
 - **The Markov model still matches the real statistics by construction.** A model that counts reproduces what it counted, so its
@@ -367,14 +422,34 @@ What this does and does not show:
 - **Not measured: how it sounds.** Nothing here is a listening test, and these are statistics, not musicality. The new rule-based phrasing, and
   the model's phrases and repeats, are meant to be heard; whether they are better is for ears to say.
 - **Limits.** Chords are simplified to three kinds, so some of the real solos' "out of scale" notes are harmony the band cannot express;
-  generation uses one chord per bar; the model is for saxophone-range lines; 52 held-out solos is a small test set.
+  generation uses one chord per bar; 52 held-out solos is a small test set.
+
+**The other instruments** (`evaluate --instrument piano` or `bass`: each system solos in that instrument's register, against that
+instrument's rules; only the line is measured, not the piano's left-hand chords). The held-out sets are very small (4 piano-like solos,
+8 low-horn solos), so read these as a sign, not a result:
+
+| | notes / bar | chord tone on strong beat | leaps (5+) | notes / phrase | rests | bar's last note in the next scale |
+|---|---:|---:|---:|---:|---:|---:|
+| **piano:** real (p, vib, g) | 7.84 | 0.56 | 0.11 | 35.3 | 0.33 | 0.71 |
+| rules | 4.98 | 0.89 | 0.06 | 8.6 | 0.37 | 0.89 |
+| Markov as it was (T 1.0) | 5.46 | 0.55 | 0.12 | 14.0 | 0.40 | 0.78 |
+| Markov now (T 0.9) | 6.51 | 0.47 | 0.10 | 24.5 | 0.34 | 0.74 |
+| **bass:** real (tb, bs, bcl) | 5.81 | 0.53 | 0.13 | 18.9 | 0.40 | 0.83 |
+| rules | 5.33 | 0.91 | 0.03 | 8.9 | 0.32 | 0.89 |
+| Markov as it was (T 1.0) | 6.11 | 0.58 | 0.11 | 18.6 | 0.39 | 0.82 |
+| Markov now (T 0.9) | 7.63 | 0.49 | 0.09 | 26.9 | 0.36 | 0.77 |
+
+As with the sax, the model is close to the real lines and the rules are safer. The piano now plays longer phrases, nearer the real
+ones. The bass at 0.9 overshoots: busier and with longer phrases than the low horns it learned from (at 1.0 it was closer on these),
+so one temperature for the whole band is a compromise. The bass model has learned from horns, so it is a
+horn's solo in the bass register, not a bassist's. The drums cannot be measured this way (the measures are pitches against chords).
 
 ### What a better model would change
 
 Everything above the model stays: `PhraseComposer` is the one place a composer plugs in, `ComposerFactory` chooses it per instrument,
 `evaluate` compares it with these two on the same footing, and the copy rate shows whether it merely memorised. A neural model would
-be trained on the same corpus (the same split, in Python) and exported, and has to beat the Markov row on repeated figures and on
-long phrases without a copy rate far above the real solos'.
+be trained on the same corpus (the same split, in Python) and exported, and has to predict the held-out solos in fewer bits than the
+Markov model's 7.72 a note (sax), and beat it on repeated figures and long phrases, without a copy rate far above the real solos'.
 
 ## Not yet built
 

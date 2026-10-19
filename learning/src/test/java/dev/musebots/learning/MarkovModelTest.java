@@ -21,6 +21,11 @@ class MarkovModelTest {
 
     private static final MarkovModel.Meta META = new MarkovModel.Meta("test", List.of(), 0, 0, 3, 1, List.of(), List.of());
     private static final List<Chord> F7_BARS = Collections.nCopies(4, Chord.parse("F7"));
+    /**
+     * A temperature that plays what the model thinks most likely. A model learned from one small lesson does not copy it
+     * exactly at temperature 1, because it also leans on what it knows of similar situations, as it should with real data.
+     */
+    private static final double MOST_LIKELY = 0.2;
 
     private static MarkovModel train(Corpus.Solo... solos) {
         return MarkovModel.train(List.of(solos), META);
@@ -34,7 +39,7 @@ class MarkovModelTest {
     void reproducesAFigureItHasOnlyEverSeenOneWayToPlay() {
         MarkovModel model = train(Solos.solo("a", "Figure", Solos.arpeggioOverF7(8)));
         // The line starts from the E-flat, the note that leads into the top of the figure in everything it was shown.
-        List<TickNote> line = model.generate(F7_BARS, 4, 75, 55, 80, 1.0, new Random(1));
+        List<TickNote> line = model.generate(F7_BARS, 4, 75, 55, 80, MOST_LIKELY, new Random(1));
 
         // And from there the only thing it ever saw was F, A, C, E-flat, F, A, C... one quarter note each.
         assertEquals(List.of(65, 69, 72, 75, 65, 69, 72, 75, 65, 69, 72, 75, 65, 69, 72, 75), pitches(line));
@@ -105,6 +110,44 @@ class MarkovModelTest {
     }
 
     @Test
+    void aSituationSeenOnceLeansOnSimilarOnesButOneSeenOftenFollowsItself() {
+        Map<String, Map<String, Integer>> once = Map.of("detailed", Map.of("x", 1), "coarse", Map.of("y", 9));
+        Map<String, Double> chances = MarkovModel.distribution(once, new String[] {"detailed", "coarse"}, 3, MarkovModel.Blend.INTERPOLATE);
+        assertTrue(chances.get("y") > chances.get("x"), "one sighting is not enough to forget everything else: " + chances);
+        assertEquals(1.0, chances.values().stream().mapToDouble(Double::doubleValue).sum(), 1e-9);
+
+        Map<String, Map<String, Integer>> often = Map.of("detailed", Map.of("x", 300), "coarse", Map.of("y", 300));
+        assertTrue(MarkovModel.distribution(often, new String[] {"detailed", "coarse"}, 3, MarkovModel.Blend.INTERPOLATE).get("x") > 0.95);
+
+        // The way models were used before: only the most detailed level seen often enough.
+        assertEquals(Map.of("y", 1.0), MarkovModel.distribution(once, new String[] {"detailed", "coarse"}, 3, MarkovModel.Blend.BACKOFF));
+    }
+
+    @Test
+    void aSoloRemembersWhatItPlayedAfterAFigure() {
+        // C D E F, then C D E again: after two whole steps up, this solo went up a half step.
+        List<TickNote> line = new ArrayList<>();
+        int[] pitches = {60, 62, 64, 65, 60, 62, 64};
+        for (int i = 0; i < pitches.length; i++) {
+            line.add(new TickNote(i * 12, 12, pitches[i]));
+        }
+        MarkovModel.Memory memory = new MarkovModel.Memory();
+        memory.update(line);
+        assertEquals(Map.of("1", 1.0), memory.leapAfter(line));
+        assertEquals(Map.of("12:12", 1.0), memory.rhythmAfter(line), "and it played every note a beat apart");
+        assertEquals(null, memory.leapAfter(line.subList(0, 2)), "nothing to remember before a figure has been played");
+    }
+
+    @Test
+    void isLessSurprisedBySolosLikeTheOnesItLearnedFrom() {
+        MarkovModel eighths = train(Solos.solo("a", "Eighths", Solos.eighthsOverF7(8)));
+        double familiar = eighths.surprise(List.of(Solos.solo("b", "Eighths", Solos.eighthsOverF7(4)))).bits();
+        double strange = eighths.surprise(List.of(Solos.solo("c", "Figure", Solos.arpeggioOverF7(4)))).bits();
+        assertTrue(familiar < strange, familiar + " bits a note for what it knows, " + strange + " for what it does not");
+        assertTrue(familiar < 1, "it has learned eighths a semitone apart well: " + familiar);
+    }
+
+    @Test
     void temperatureTradesFollowingTheDataAgainstAdventure() {
         Map<String, Map<String, Integer>> table = new TreeMap<>();
         table.put("c", new TreeMap<>(Map.of("common", 90, "rare", 10)));
@@ -146,7 +189,7 @@ class MarkovModelTest {
         // The same figure transposed to B-flat7 (up a fourth: +5) is the same lesson, so the model plays it over B-flat7 too.
         MarkovModel model = train(Solos.solo("a", "Figure", Solos.arpeggioOverF7(8)));
         // Starting from A-flat (the flat seventh of B-flat7, as E-flat is of F7), it plays B-flat, D, F, A-flat, B-flat...
-        List<TickNote> overBb = model.generate(Collections.nCopies(4, Chord.parse("Bb7")), 4, 80, 55, 85, 1.0, new Random(1));
+        List<TickNote> overBb = model.generate(Collections.nCopies(4, Chord.parse("Bb7")), 4, 80, 55, 85, MOST_LIKELY, new Random(1));
         assertEquals(List.of(70, 74, 77, 80, 70, 74, 77, 80), pitches(overBb).subList(0, 8));
     }
 
@@ -200,7 +243,7 @@ class MarkovModelTest {
         int[] figure = {65, 69, 72, 75};
         MarkovModel model = train(Solos.solo("a", "Phrases", phrasesOfFour(16, figure)), Solos.solo("b", "Phrases", phrasesOfFour(16, figure)),
                 Solos.solo("c", "Phrases", phrasesOfFour(16, figure)), Solos.solo("d", "Phrases", phrasesOfFour(16, figure)));
-        List<TickNote> line = model.generate(Collections.nCopies(8, Chord.parse("F7")), 4, 75, 55, 80, 1.0, 0.0, new Random(1));
+        List<TickNote> line = model.generate(Collections.nCopies(8, Chord.parse("F7")), 4, 75, 55, 80, MOST_LIKELY, 0.0, new Random(1));
 
         int run = 1;
         List<Integer> runs = new ArrayList<>();
@@ -289,7 +332,7 @@ class MarkovModelTest {
         int repeats = 0;
         int lines = 0;
         for (long seed = 0; seed < 30; seed++) {
-            List<TickNote> line = model.generate(chords, 4, 65, 55, 80, 1.0, motifRepeat, new Random(seed));
+            List<TickNote> line = model.generate(chords, 4, 65, 55, 80, MOST_LIKELY, motifRepeat, new Random(seed));
             List<List<TickNote>> phrases = new ArrayList<>();
             List<TickNote> current = new ArrayList<>();
             for (int i = 0; i < line.size(); i++) {

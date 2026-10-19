@@ -61,7 +61,7 @@ class MainTest {
 
         MarkovModel loaded = MarkovModel.read(model);
         assertEquals(List.of("as", "bs", "ss", "ts", "ts-c"), loaded.meta().instruments());
-        assertEquals(3, loaded.meta().minContext());
+        assertEquals(10, loaded.meta().minContext());
         assertTrue(loaded.meta().testIds().size() >= 1);
         assertTrue(loaded.meta().trainIds().stream().noneMatch(loaded.meta().testIds()::contains));
         assertTrue(loaded.meta().trainIds().stream().noneMatch(id -> id.equals("waltz")), "only usable solos are used");
@@ -79,7 +79,35 @@ class MainTest {
         assertTrue(output.contains("rules (the band today)"));
         assertTrue(output.contains("markov (temperature 0.8)"));
         assertTrue(output.contains("markov (temperature 1.0)"));
+        assertTrue(output.contains("How well the model predicts real solos"));
         assertEquals(output.substring(0, output.indexOf("wrote ")).strip(), Files.readString(report).strip());
+    }
+
+    @Test
+    void evaluateComparesHowWellAModelAndABaselinePredictTheHeldOutSolos() throws IOException {
+        Path model = dir.resolve("model.json");
+        Path baseline = dir.resolve("baseline.json");
+        run(0, "train", "--corpus", corpus.toString(), "--out", model.toString(), "--instruments", "sax");
+        run(0, "train", "--corpus", corpus.toString(), "--out", baseline.toString(), "--instruments", "sax", "--min-context", "3");
+        String output = run(0, "evaluate", "--corpus", corpus.toString(), "--model", model.toString(), "--baseline", baseline.toString(),
+                "--repetitions", "1");
+        assertTrue(output.contains("| this model |"), output);
+        assertTrue(output.contains("| baseline, as models played before |"), output);
+    }
+
+    @Test
+    void evaluateMeasuresTheModelInTheRegisterOfTheChosenInstrument() throws IOException {
+        Path model = dir.resolve("model.json");
+        run(0, "train", "--corpus", corpus.toString(), "--out", model.toString(), "--instruments", "sax");
+        for (String instrument : new String[] {"piano", "bass"}) {
+            String output = run(0, "evaluate", "--corpus", corpus.toString(), "--model", model.toString(),
+                    "--instrument", instrument, "--repetitions", "1");
+            assertTrue(output.contains("markov (temperature 1.0)"), instrument + ": " + output);
+        }
+        assertTrue(run(2, "evaluate", "--corpus", corpus.toString(), "--model", model.toString(), "--instrument", "drums")
+                .contains("the drums play no pitches"));
+        assertTrue(run(2, "evaluate", "--corpus", corpus.toString(), "--model", model.toString(), "--instrument", "tuba")
+                .contains("--instrument must be sax, piano or bass"));
     }
 
     @Test

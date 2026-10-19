@@ -1,5 +1,6 @@
 package dev.musebots.learning;
 
+import dev.musebots.core.Instrument;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -7,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -17,8 +19,15 @@ public final class Main {
     private static final String USAGE = """
             usage:
               inspect  --corpus FILE
-              train    --corpus FILE --out FILE [--instruments sax] [--test-fraction 0.2] [--seed 1] [--min-context 3]
-              evaluate --corpus FILE --model FILE [--temperatures 1.0] [--repetitions 3] [--seed 1] [--report FILE]
+              train    --corpus FILE --out FILE [--instruments sax] [--test-fraction 0.2] [--seed 1] [--min-context 10]
+              evaluate --corpus FILE --model FILE [--instrument sax] [--baseline FILE] [--temperatures 1.0] [--repetitions 3] [--seed 1] [--report FILE]
+
+            --instruments is what to learn from: a group (sax, trumpet, trombone, clarinet, keys, low, all) or the database's
+            codes (as,ts,...). --instrument is the band's instrument (sax, piano, bass) whose register and rules it is measured with.
+            --baseline is an earlier model to compare how well each predicts the held-out solos (train both with the same
+            --instruments, --test-fraction and --seed, so they hold out the same solos).
+            A model per instrument of the band, as the server takes them:
+              sax: --instruments sax    piano: --instruments keys    bass: --instruments low    drums: --instruments all
 
             The corpus comes from tools/wjd_to_corpus.py. Run through Gradle, for example:
               ./gradlew :learning:run --args="train --corpus data/corpus.json --out data/markov.json --instruments sax"
@@ -73,7 +82,7 @@ public final class Main {
         Set<String> instruments = Selection.instrumentsNamed(options.getOrDefault("instruments", "all"));
         double testFraction = Double.parseDouble(options.getOrDefault("test-fraction", "0.2"));
         long seed = Long.parseLong(options.getOrDefault("seed", "1"));
-        int minContext = Integer.parseInt(options.getOrDefault("min-context", "3"));
+        int minContext = Integer.parseInt(options.getOrDefault("min-context", "10"));
 
         List<Corpus.Solo> usable = new Selection(instruments, 0, Double.MAX_VALUE, Selection.ALL.minNotes()).apply(corpus);
         if (usable.isEmpty()) {
@@ -94,6 +103,7 @@ public final class Main {
         MarkovModel model = MarkovModel.read(Path.of(required(options, "model")));
         int repetitions = Integer.parseInt(options.getOrDefault("repetitions", "3"));
         long seed = Long.parseLong(options.getOrDefault("seed", "1"));
+        Instrument instrument = bandInstrument(options.getOrDefault("instrument", "sax"));
 
         Set<String> instruments = new HashSet<>(model.meta().instruments());
         List<Corpus.Solo> usable = new Selection(instruments, 0, Double.MAX_VALUE, Selection.ALL.minNotes()).apply(corpus);
@@ -106,18 +116,32 @@ public final class Main {
         }
 
         List<Evaluation.System> systems = new ArrayList<>();
-        systems.add(Systems.rules());
+        systems.add(Systems.rules(instrument));
         for (String temperature : options.getOrDefault("temperatures", "1.0").split(",")) {
-            systems.add(Systems.markov(model, Double.parseDouble(temperature.trim())));
+            systems.add(Systems.markov(model, Double.parseDouble(temperature.trim()), instrument));
         }
 
-        String report = ReportFormatter.markdown(Evaluation.run(training, heldOut, systems, repetitions, seed));
+        Map<String, MarkovModel.Surprise> surprise = new java.util.LinkedHashMap<>();
+        surprise.put("this model", model.surprise(heldOut));
+        if (options.containsKey("baseline")) {
+            surprise.put("baseline, as models played before", MarkovModel.read(Path.of(options.get("baseline"))).surpriseAsBefore(heldOut));
+        }
+        String report = ReportFormatter.markdown(Evaluation.run(training, heldOut, systems, repetitions, seed))
+                + ReportFormatter.surprise(surprise);
         out.println(report);
         if (options.containsKey("report")) {
             Path file = Path.of(options.get("report"));
             Corpus.ensureParent(file);
             Files.writeString(file, report);
             out.println("wrote " + file);
+        }
+    }
+
+    private static Instrument bandInstrument(String name) {
+        try {
+            return Instrument.valueOf(name.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("--instrument must be sax, piano or bass, not '" + name + "'");
         }
     }
 

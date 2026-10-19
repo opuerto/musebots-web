@@ -1,12 +1,21 @@
 package dev.musebots.server;
 
 import dev.musebots.agents.ComposerFactory;
+import dev.musebots.core.Instrument;
 import dev.musebots.learning.MarkovModel;
 import dev.musebots.learning.SoloModelComposer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 
 /**
  * A way of writing the solos that a performance can be given. {@code credit} says where a learned model's data came from;
@@ -17,27 +26,101 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
     public static final String RULES = "rules";
     public static final String MARKOV = "markov";
 
+    /** How closely the learned solos follow the data: at 0.9 they come closest to the real solos' statistics (see the README). */
+    public static final double SOLO_TEMPERATURE = 0.9;
+
+    /** The environment variable naming the model for every instrument that has none of its own. */
+    public static final String MODEL_VARIABLE = "MARKOV_MODEL";
+
     /** The band's hand-written rules, always on offer. */
     public static SoloOption rules() {
         return new SoloOption(RULES, "Rules (hand-written)", "", ComposerFactory.rules());
     }
 
-    /** Solos from a Markov model, with everything else as the band normally plays it. */
+    /** Solos from one Markov model on every instrument, with everything else as the band normally plays it. */
     public static SoloOption markov(MarkovModel model, double temperature) {
-        String credit = "Solos learned from " + model.meta().solos() + " transcribed solos of the Weimar Jazz Database "
-                + "(Jazzomat Research Project, Hochschule für Musik Franz Liszt Weimar), used under the Open Database License (ODbL).";
-        ComposerFactory factory = (instrument, random) -> SoloModelComposer.wrap(
-                ComposerFactory.rules().create(instrument, random), model, random, temperature);
-        return new SoloOption(MARKOV, "Markov model (learned from jazz solos)", credit, factory);
+        Map<Instrument, MarkovModel> models = new EnumMap<>(Instrument.class);
+        for (Instrument instrument : Instrument.values()) {
+            models.put(instrument, model);
+        }
+        return markov(models, temperature);
     }
 
     /**
-     * What to offer, given the path of a trained model (null or empty for none). A model that cannot be read is reported and
-     * left out rather than stopping the server, so the band still plays.
+     * Solos from a Markov model per instrument, with everything else as the band normally plays it. An instrument with no
+     * model plays its solos by the rules.
      */
+    public static SoloOption markov(Map<Instrument, MarkovModel> models, double temperature) {
+        Set<MarkovModel> distinct = Collections.newSetFromMap(new IdentityHashMap<>()); // one model may play several instruments
+        distinct.addAll(models.values());
+        int solos = distinct.stream().mapToInt(model -> model.meta().solos()).sum();
+        String credit = "Solos learned from " + solos + " transcribed solos of the Weimar Jazz Database "
+                + "(Jazzomat Research Project, Hochschule für Musik Franz Liszt Weimar), used under the Open Database License (ODbL).";
+        Map<Instrument, MarkovModel> chosen = new EnumMap<>(Instrument.class);
+        chosen.putAll(models);
+        ComposerFactory factory = (instrument, random) -> {
+            MarkovModel model = chosen.get(instrument);
+            return model == null
+                    ? ComposerFactory.rules().create(instrument, random)
+                    : SoloModelComposer.wrap(ComposerFactory.rules().create(instrument, random), model, random, temperature);
+        };
+        return new SoloOption(MARKOV, "Markov model (learned from jazz solos)", credit, factory);
+    }
+
+    /** The variable naming one instrument's own model, such as {@code MARKOV_MODEL_PIANO}. */
+    public static String modelVariable(Instrument instrument) {
+        return MODEL_VARIABLE + "_" + instrument.name();
+    }
+
+    /** What to offer, given the path of one trained model for every instrument (null or empty for none). */
     public static List<SoloOption> offered(String modelPath, java.io.PrintStream log) {
-        if (modelPath == null || modelPath.isBlank()) {
+        return offered(name -> name.equals(MODEL_VARIABLE) ? modelPath : null, log);
+    }
+
+    /**
+     * What to offer, reading the model paths from {@code environment}: {@code MARKOV_MODEL_SAX}, {@code _PIANO}, {@code _BASS}
+     * and {@code _DRUMS} name an instrument's own model, and {@code MARKOV_MODEL} the one for every instrument without one.
+     * A model that cannot be read is reported and left out rather than stopping the server, so the band still plays: its
+     * instrument falls back to the shared model, or to the rules.
+     */
+    public static List<SoloOption> offered(Function<String, String> environment, java.io.PrintStream log) {
+        Map<String, MarkovModel> loaded = new HashMap<>(); // by path, so a file named twice is read once
+        MarkovModel shared = load(environment.apply(MODEL_VARIABLE), "", loaded, log);
+        Map<Instrument, MarkovModel> models = new EnumMap<>(Instrument.class);
+        for (Instrument instrument : Instrument.values()) {
+            MarkovModel own = load(environment.apply(modelVariable(instrument)), " for the " + instrument.name().toLowerCase(Locale.ROOT), loaded, log);
+            MarkovModel model = own != null ? own : shared;
+            if (model != null) {
+                models.put(instrument, model);
+            }
+        }
+        if (models.isEmpty()) {
+            if (anyNamed(environment)) {
+                log.println("No solo model could be loaded: offering the rules only.");
+            }
             return List.of(rules());
+        }
+        return List.of(rules(), markov(models, SOLO_TEMPERATURE));
+    }
+
+    private static boolean anyNamed(Function<String, String> environment) {
+        if (!isBlank(environment.apply(MODEL_VARIABLE))) {
+            return true;
+        }
+        for (Instrument instrument : Instrument.values()) {
+            if (!isBlank(environment.apply(modelVariable(instrument)))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static MarkovModel load(String modelPath, String purpose, Map<String, MarkovModel> loaded, java.io.PrintStream log) {
+        if (isBlank(modelPath)) {
+            return null;
+        }
+        if (loaded.containsKey(modelPath)) {
+            return loaded.get(modelPath);
         }
         try {
             Path file = Path.of(modelPath);
@@ -45,11 +128,17 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
                 throw new IOException("no such file");
             }
             MarkovModel model = MarkovModel.read(file);
-            log.println("Solo model loaded: " + model.describe());
-            return List.of(rules(), markov(model, 1.0));
+            log.println("Solo model loaded" + purpose + ": " + model.describe());
+            loaded.put(modelPath, model);
+            return model;
         } catch (IOException | RuntimeException e) {
-            log.println("Could not load the solo model '" + modelPath + "' (" + e.getMessage() + "): offering the rules only.");
-            return List.of(rules());
+            log.println("Could not load the solo model" + purpose + " '" + modelPath + "' (" + e.getMessage() + ")");
+            loaded.put(modelPath, null);
+            return null;
         }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

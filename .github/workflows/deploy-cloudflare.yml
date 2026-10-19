@@ -1,0 +1,25 @@
+# Builds the Docker image and deploys it to Cloudflare Containers. GitHub's machines have Docker, so you do not need it locally.
+# Needs two repository secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID. Runs only when started by hand
+# (Actions -> Deploy to Cloudflare -> Run workflow); add "push: branches: [main]" under "on" to deploy on every push.
+name: Deploy to Cloudflare
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Wrangler
+        working-directory: cloudflare
+        run: npm install
+      - name: Deploy
+        working-directory: cloudflare
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -56,6 +56,19 @@ public final class ReportFormatter {
         return out.toString();
     }
 
+    /** How well models predict the held-out solos, one row per model. */
+    public static String surprise(Map<String, MarkovModel.Surprise> models) {
+        StringBuilder out = new StringBuilder("\n## How well the model predicts real solos\n\n"
+                + "How surprised a model is by each note of the held-out solos, in bits (lower is better): how likely it thought "
+                + "the note's rhythm and its leap were, in the situation the player was in. This ranks what models have learned, "
+                + "which the statistics above cannot, since a counting model reproduces those by construction. A baseline is "
+                + "scored as models were played before: only the most detailed situation seen often enough, and no memory of the solo.\n\n"
+                + "| model | rhythm | pitch | total | notes |\n|---|---:|---:|---:|---:|\n");
+        models.forEach((name, s) -> out.append("| ").append(name).append(" | ").append(number(s.rhythmBits())).append(" | ")
+                .append(number(s.pitchBits())).append(" | ").append(number(s.bits())).append(" | ").append(s.notes()).append(" |\n"));
+        return out.toString();
+    }
+
     static String number(double value) {
         return Double.isNaN(value) ? "–" : String.format(Locale.ROOT, "%.2f", value);
     }
