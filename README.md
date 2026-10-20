@@ -32,44 +32,7 @@ Settings are environment variables, all optional:
 `GET /health` answers `{"status":"ok","performances":0,"capacity":8}` for uptime checks and the hosting platform.
 `GET /models` lists the learned models the server plays from, and `/models/sax.json` (and so on) downloads one, under the ODbL.
 
-**Putting it on a public domain:** the repository has a `Dockerfile` that builds one image serving the page, the agents and the learned models in `models/`; set `PORT`, `MAX_PERFORMANCES` and, if needed, `ALLOWED_ORIGINS` as above, and point a health check at `/health`. `cloudflare/` deploys that image to Cloudflare Containers (see `docs/DEPLOY-cloudflare.md`). The step-by-step guide for deploying with Coolify is kept outside the repository.
-
-## The page
-
-The page is plain HTML, one stylesheet and ES modules: no framework and no build step, so the server serves it as it is
-and there is nothing extra to install to run or deploy it.
-
-- **Looks:** a design system in CSS custom properties (colour, type scale, spacing, radii) with a **dark theme for everyone by default** and
-  a light one behind the toggle in the top bar. The system's light or dark setting is deliberately not followed; the choice is remembered
-  (`theme.js`, and `theme-init.js`, which applies it before the first paint so there is no flash). The text is set in the system's UI font with
-  tabular figures for numbers; a test checks that the two themes define the same tokens and that text keeps a WCAG AA contrast in both. It
-  respects reduced motion, shows keyboard focus, announces the status politely, and has a skip link.
-- **About page** (`about.html`): who made this. A profile, a summary, the career path at Salling Group as a timeline, skills, experience, education,
-  a portrait (`assets/oscar.jpg`, a 640 px square), the paper and what Oscar does outside work, in the same design and themes, with a contents list that follows you down the page and a print
-  stylesheet. It is plain HTML with no script of its own beyond the theme toggle. It deliberately leaves out phone numbers and references.
-  To change a fact, edit `about.html`; `about.test.mjs` checks the career path is in order and that nothing private is published.
-- **Top bar:** always in view, with the transport (Start, Stop), the status (a coloured dot: busy, ready, live, error) and the theme toggle.
-  The controls below it are grouped into *The tune* (song, tempo, solo choruses) and *The band* (band, solos, feel, sound).
-- **The band on stage:** a robot per musician, drawn in SVG by `robots.js` (a sax robot, a piano robot, a bass robot and a
-  drummer robot). While a robot is playing, its arms, keys, strings or sticks move and it sways with the music; when it is
-  addressed it turns to listen, and when it speaks its antenna blinks and a speech bubble shows what it says
-  ("Your turn!", "Back me up!", "I will play the intro!"), worked out from the agents' messages by `reactions.js`. Each card also
-  shows what the musician is doing (leading, accompanying, playing softly, sitting out), the names of the notes
-  sounding right now, and its volume and mute. The animation is plain CSS and stops for people who prefer reduced motion.
-- **The chord chart,** laid out like a lead sheet: a row per section (A, A, B) with a chord in each bar. The section being
-  played is highlighted, and so is the bar, which fills as it goes by. Above it is where the band is
-  ("Piano solo · First chorus (AAB)"), and below it a plain-English caption of what is happening, such as who handed the
-  lead to whom.
-- **Eight tunes** in `Songs`, each with the style it is played in and a tempo that suits it (choosing a tune moves the tempo
-  slider there): *Blues in F*, *Song 1* (AAB), a *minor blues* in C, a *bebop blues* in Bb at 190 bpm, *rhythm changes* (32 bars, AABA),
-  *leaves changes* (a ii-V-I tune in G minor, AAB), a slow *ballad* in Eb at 66 bpm and a *modal* tune (AABA, eight bars on one chord).
-  The charts are only chord changes, and only the three chord qualities the composers know (major 7, dominant 7, minor 7) are used, so
-  a minor ii-V uses a plain minor 7 where a lead sheet would write half-diminished. The feel follows the tempo (slow tunes swing
-  hard, fast ones less), but there is no separate bossa or waltz feel: everything is in 4/4. The chart of the
-  chosen tune is shown before you press Start.
-- **How it knows where the band is:** the server announces each part of the tune (`segment`: when it starts and ends, who
-  leads it, and the tempo it was arranged at) and the tune itself (`song`). The page works out the section and bar from
-  those and the clock it synced with the server, so the display stays in time with the sound. See `timeline.js`.
+**Putting it on a public domain:** the repository has a `Dockerfile` that builds one image serving the page, the agents and the learned models in `models/`; set `PORT`, `MAX_PERFORMANCES` and, if needed, `ALLOWED_ORIGINS` as above, and point a health check at `/health`. The step-by-step guide for deploying with Coolify is kept outside the repository.
 
 ## How it works
 

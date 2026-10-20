@@ -21,7 +21,3 @@ MTPs-*.txt
 # Not needed to run the server
 **/__pycache__
 *.pyc
-
-# The Cloudflare deployment files are not part of the server image
-cloudflare
-.github
