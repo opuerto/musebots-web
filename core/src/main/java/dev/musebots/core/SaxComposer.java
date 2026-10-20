@@ -5,8 +5,8 @@ import java.util.List;
 import java.util.random.RandomGenerator;
 
 /**
- * The saxophone. It states the melody over the head, improvises in its solo, holds the last note, and
- * otherwise lays out, leaving the space to the others.
+ * The saxophone. It states the melody over the head, improvises in its solo, holds the last note, and behind the others
+ * plays soft pads. When it wins the intro it plays it alone, as a melody over the turnaround that leads into the head.
  */
 public final class SaxComposer implements PhraseComposer {
 
@@ -35,12 +35,11 @@ public final class SaxComposer implements PhraseComposer {
     @Override
     public List<NoteEvent> compose(PhraseRequest request) {
         return switch (request.kind()) {
-            case HEAD -> head.line(request);
+            case INTRO, HEAD -> head.line(request);
             case SOLO -> solo.line(request);
             case ENDING -> List.of(heldNote(request));
             case SUPPORT -> pads(request, 54);
             case SUPPORT_LIGHT -> pads(request, 40);
-            case INTRO -> List.of();
         };
     }
 

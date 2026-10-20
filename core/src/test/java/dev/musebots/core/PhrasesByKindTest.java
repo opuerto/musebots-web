@@ -60,9 +60,21 @@ class PhrasesByKindTest {
         assertEquals(6, pads.size(), "one pad every other bar");
         assertTrue(pads.stream().mapToInt(NoteEvent::velocity).max().orElseThrow()
                 < melody.stream().mapToInt(NoteEvent::velocity).min().orElseThrow(), "pads should sit behind the melody");
-        assertTrue(sax.compose(request(PhraseKind.INTRO, 4)).isEmpty(), "only the winner plays the intro");
         assertFalse(sax.compose(request(PhraseKind.SOLO, 12)).isEmpty());
         assertEquals(1, sax.compose(request(PhraseKind.ENDING, 1)).size());
+    }
+
+    @Test
+    void theSaxPlaysTheIntroWhenItWinsIt() {
+        // Only the musician who wins the intro is asked for it, and plays it alone: the sax must not leave four bars of silence.
+        for (long seed = 0; seed < 20; seed++) {
+            PhraseRequest request = request(PhraseKind.INTRO, 4);
+            List<NoteEvent> intro = composer(Instrument.SAX, seed).compose(request);
+            assertTrue(intro.size() >= 4, "seed " + seed + ": a melody over the four bars, not " + intro.size() + " notes");
+            assertTrue(intro.stream().allMatch(n -> n.midi() >= SaxComposer.LOW && n.midi() <= SaxComposer.HIGH), "in the horn's range");
+            assertTrue(intro.stream().anyMatch(n -> n.startMs() >= request.startMs() + request.clock().barsToMillis(3)),
+                    "seed " + seed + ": it plays through to the last bar, leading into the head");
+        }
     }
 
     @Test
