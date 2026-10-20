@@ -516,6 +516,7 @@ input[type=range] { width: 100%; height: 2.5rem; margin: 0; accent-color: var(--
   .topbar-inner { grid-template-columns: minmax(0, 1fr) auto auto; row-gap: var(--space-2); padding: var(--space-2) var(--space-3); }
   .status { grid-column: 1 / -1; grid-row: 2; }
   .brand span { display: none; }
+  .navlink-wide { display: none; } /* no room on a phone: the footer links to it too */
   .topbar-left { grid-column: 1; }
   .topbar-inner.simple { grid-template-columns: minmax(0, 1fr) auto auto; }
   .topbar-inner.simple .spacer { display: none; }

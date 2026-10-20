@@ -151,6 +151,7 @@ class PerformanceServerTest {
         assertTrue(about.body().contains("Oscar Puerto") && about.body().contains("Salling Group"));
         assertTrue(about.body().contains("<script type=\"module\" src=\"about.js\">"));
         assertTrue(get("/index.html").body().contains("href=\"about.html\""), "the band page links to the About page");
+        assertTrue(get("/index.html").body().contains("href=\"https://github.com/opuerto/musebots-web\""), "and to its source code");
         java.net.http.HttpResponse<byte[]> photo = java.net.http.HttpClient.newHttpClient().send(
                 java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + server.port() + "/assets/oscar.jpg")).build(),
                 java.net.http.HttpResponse.BodyHandlers.ofByteArray());
