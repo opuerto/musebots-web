@@ -64,10 +64,10 @@ class SoloOptionTest {
         eighthsModel().write(file);
 
         List<SoloOption> offered = SoloOption.offered(file.toString(), log);
-        assertEquals(List.of("rules", "markov"), offered.stream().map(SoloOption::id).toList(), "the rules stay the default");
-        assertTrue(offered.get(1).credit().contains("Weimar Jazz Database"));
-        assertTrue(offered.get(1).credit().contains("ODbL"));
-        assertTrue(offered.get(1).credit().contains("1 transcribed solos"), offered.get(1).credit());
+        assertEquals(List.of("markov", "rules"), offered.stream().map(SoloOption::id).toList(), "the learned solos are the default");
+        assertTrue(offered.get(0).credit().contains("Weimar Jazz Database"));
+        assertTrue(offered.get(0).credit().contains("ODbL"));
+        assertTrue(offered.get(0).credit().contains("1 transcribed solos"), offered.get(0).credit());
         assertTrue(logged().contains("Solo model loaded: learned from 1 solos"));
     }
 
@@ -97,8 +97,8 @@ class SoloOptionTest {
         Map<String, String> environment = Map.of("MARKOV_MODEL", shared.toString(), "MARKOV_MODEL_PIANO", piano.toString());
 
         List<SoloOption> offered = SoloOption.offered(environment::get, log);
-        assertEquals(List.of("rules", "markov"), offered.stream().map(SoloOption::id).toList());
-        SoloOption markov = offered.get(1);
+        assertEquals(List.of("markov", "rules"), offered.stream().map(SoloOption::id).toList());
+        SoloOption markov = offered.get(0);
         assertTrue(markov.credit().contains("2 transcribed solos"), "both models' data is credited: " + markov.credit());
         assertTrue(logged().contains("Solo model loaded for the piano"), logged());
 
@@ -114,7 +114,7 @@ class SoloOptionTest {
     void anInstrumentWithNoModelSolosByTheRules(@TempDir Path dir) throws IOException {
         Path bass = dir.resolve("bass.json");
         eighthsModel().write(bass);
-        SoloOption markov = SoloOption.offered(Map.of("MARKOV_MODEL_BASS", bass.toString())::get, log).get(1);
+        SoloOption markov = SoloOption.offered(Map.of("MARKOV_MODEL_BASS", bass.toString())::get, log).get(0);
         assertEquals(32, solo(markov, Instrument.BASS).size());
         for (Instrument instrument : new Instrument[] {Instrument.SAX, Instrument.PIANO, Instrument.DRUMS}) {
             assertEquals(solo(rules(), instrument), solo(markov, instrument), instrument.toString());
@@ -128,7 +128,7 @@ class SoloOptionTest {
         Map<String, String> environment = Map.of("MARKOV_MODEL", shared.toString(), "MARKOV_MODEL_SAX", dir.resolve("gone.json").toString());
         List<SoloOption> offered = SoloOption.offered(environment::get, log);
         assertTrue(logged().contains("Could not load the solo model for the sax"), logged());
-        assertEquals(32, solo(offered.get(1), Instrument.SAX).size());
+        assertEquals(32, solo(offered.get(0), Instrument.SAX).size());
     }
 
     private static SoloOption rules() {

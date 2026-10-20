@@ -119,7 +119,7 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
             }
             return List.of(rules());
         }
-        return List.of(rules(), markov(models, files, SOLO_TEMPERATURE));
+        return List.of(markov(models, files, SOLO_TEMPERATURE), rules()); // the learned solos are the default when there is a model
     }
 
     private static boolean anyNamed(Function<String, String> environment) {

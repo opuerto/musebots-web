@@ -365,7 +365,33 @@ els.sound.addEventListener('change', () => { if (!performing) loadBand(); });
 els.soloComposer.addEventListener('change', showCredit);
 els.ensemble.addEventListener('change', () => { if (!performing) stage.setBand(ENSEMBLES[els.ensemble.value]); });
 
+/** A tenth of a second of silence, played on a loop to keep an iPhone's audio switched on (see playEvenInSilentMode). */
+const SILENCE = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+let silence = null;
+
+/**
+ * On an iPhone or iPad, every browser (they all use Safari's engine) mutes the Web Audio the band plays through while the
+ * ring switch is on silent, and nothing says why. Asking for "playback" makes the page sound like a music player does. Where
+ * the browser cannot be asked (before iOS 17, and in some apps), playing a silent media element has the same effect.
+ * It must run inside the tap, before anything is awaited.
+ */
+function playEvenInSilentMode() {
+  if (typeof navigator === 'undefined') return;
+  if (navigator.audioSession) {
+    try { navigator.audioSession.type = 'playback'; } catch { /* not allowed here: the sound works as before */ }
+    return;
+  }
+  const appleTouch = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!appleTouch || silence) return;
+  silence = document.createElement('audio');
+  silence.setAttribute('playsinline', '');
+  silence.loop = true;
+  silence.src = SILENCE;
+  silence.play?.()?.catch?.(() => {});
+}
+
 els.start.addEventListener('click', async () => {
+  playEvenInSilentMode();
   await Tone.start(); // browsers only allow audio after a user gesture
   await (band ? band : bandBuild ?? loadBand()); // the recordings may still be loading
   if (!band) return; // the band could not be built; the status line says why
