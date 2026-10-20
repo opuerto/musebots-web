@@ -287,6 +287,11 @@ MARKOV_MODEL_BASS=data/markov-bass.json MARKOV_MODEL_DRUMS=data/markov-drums.jso
   sixteenths the solos are written in. Swing is not in the data: the model learns on the straight grid and the notes are swung
   when they are played (`Swing`). Chords are the database's own symbols, read as the three kinds of chord the band knows
   (`ChordSymbols`): a half-diminished chord becomes a minor seventh, an altered dominant a plain dominant.
+- **Rhythm** (`RhythmGrid`). Transcribers put the same swung off-beat at different places in the beat (the 6, 8 or 9 of its
+  twelve ticks, by how hard the player swung at that moment), and some notes between the lines. Each beat is cleaned to the
+  simplest of swung eighths, triplets or sixteenths that fits its notes, before the model learns from it and after it writes
+  a line. When the line is played, only beats of eighths swing: triplets and sixteenths are played evenly. (Before this, the
+  model mixed the transcribed off-beats freely and the band swung them a second time, which sounded out of time.)
 - **Model** (`MarkovModel`). It learns *when* the next note comes and *which* note it is separately. The rhythm depends on where the
   note sits in the bar and the last two gaps; the pitch is a leap from the previous note, depending on the chord, where the previous note
   sat **relative to the chord's root** (so one solo over F7 teaches it every dominant chord), whether the beat is strong, the last two

@@ -23,17 +23,17 @@ public final class Songs {
     private static final java.util.Map<String, Tune> TUNES = new java.util.LinkedHashMap<>();
 
     static {
+        TUNES.put(BALLAD, new Tune("Slow ballad", 66, Songs::balladInEb)); // first: the tune the page starts on
         TUNES.put(BLUES, new Tune("Medium swing blues", 120, Songs::bluesInF));
         TUNES.put(SONG_1, new Tune("Swing, AAB", 120, Songs::song1));
         TUNES.put(MINOR_BLUES, new Tune("Minor blues", 110, Songs::minorBluesInC));
         TUNES.put(BIRD_BLUES, new Tune("Bebop blues", 190, Songs::birdBluesInBb));
         TUNES.put(RHYTHM_CHANGES, new Tune("Up-tempo swing, AABA", 170, Songs::rhythmChanges));
         TUNES.put(LEAVES, new Tune("Medium swing, ii-V-I in two keys", 130, Songs::leavesChanges));
-        TUNES.put(BALLAD, new Tune("Slow ballad", 66, Songs::balladInEb));
         TUNES.put(MODAL, new Tune("Modal jazz, AABA", 128, Songs::modalInD));
     }
 
-    /** Every tune on offer, in the order a menu should list them. */
+    /** Every tune on offer, in the order a menu should list them; the page starts on the first. */
     public static final List<String> IDS = List.copyOf(TUNES.keySet());
 
     private Songs() {

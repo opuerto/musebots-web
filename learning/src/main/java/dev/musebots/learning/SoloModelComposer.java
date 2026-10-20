@@ -8,7 +8,6 @@ import dev.musebots.core.NoteEvent;
 import dev.musebots.core.PhraseComposer;
 import dev.musebots.core.PhraseKind;
 import dev.musebots.core.PhraseRequest;
-import dev.musebots.core.Swing;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.random.RandomGenerator;
@@ -97,9 +96,11 @@ public final class SoloModelComposer implements PhraseComposer {
             hit(notes, request, DrumComposer.HI_HAT_PEDAL, beat, 0.2, 72);
         }
         int previousEnd = Integer.MIN_VALUE;
-        for (TickNote note : line) {
+        double[] beats = RhythmGrid.playedBeats(line);
+        for (int i = 0; i < line.size(); i++) {
+            TickNote note = line.get(i);
             int band = Math.max(0, Math.min(KIT.length - 1, (note.pitch() - DRUM_LOW) / DRUM_STEP));
-            double beat = Swing.swungBeats((double) note.tick() / Corpus.TICKS_PER_BEAT);
+            double beat = beats[i];
             boolean onBeat = note.tick() % Corpus.TICKS_PER_BEAT == 0;
             hit(notes, request, KIT[band], beat, 0.25, (onBeat ? 84 : 72) + random.nextInt(12));
             if (note.tick() - previousEnd >= Corpus.TICKS_PER_BEAT) { // a phrase starts after a breath
@@ -116,14 +117,19 @@ public final class SoloModelComposer implements PhraseComposer {
         notes.add(new NoteEvent(Instrument.DRUMS, piece, start, Math.max(1, end - start), velocity));
     }
 
-    /** Puts the notes on the swung clock. */
+    /** Puts the notes on the band's clock: eighths swung, triplets and sixteenths even ({@link RhythmGrid#playedBeats}). */
     private List<NoteEvent> render(List<TickNote> line, PhraseRequest request) {
+        double[] beats = RhythmGrid.playedBeats(line);
+        double phraseBeats = (double) request.bars().size() * request.clock().beatsPerBar();
         List<NoteEvent> events = new ArrayList<>();
-        for (TickNote note : line) {
+        for (int i = 0; i < line.size(); i++) {
+            TickNote note = line.get(i);
             // Each time is worked out from its position in beats, as the other composers do, so nothing drifts at tempos
             // where a beat is not a whole number of milliseconds.
-            long start = request.startMs() + request.clock().beatsToMillis(Swing.swungBeats((double) note.tick() / Corpus.TICKS_PER_BEAT));
-            long end = request.startMs() + request.clock().beatsToMillis(Swing.swungBeats((double) note.end() / Corpus.TICKS_PER_BEAT));
+            double next = i + 1 < line.size() ? beats[i + 1] : phraseBeats;
+            double endBeat = Math.min(next, beats[i] + (double) note.duration() / Corpus.TICKS_PER_BEAT);
+            long start = request.startMs() + request.clock().beatsToMillis(beats[i]);
+            long end = request.startMs() + request.clock().beatsToMillis(endBeat);
             long duration = Math.max(1, Math.round((end - start) * 0.92)); // a little air between notes, as the other composers leave
             boolean offbeat = note.tick() % Corpus.TICKS_PER_BEAT != 0;
             events.add(new NoteEvent(instrument(), note.pitch(), start, duration, 84 + random.nextInt(10) + (offbeat ? 6 : 0)));

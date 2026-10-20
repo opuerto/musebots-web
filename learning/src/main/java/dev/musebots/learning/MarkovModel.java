@@ -85,7 +85,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
             if (solo.beatsPerBar() != 4 || chords.isEmpty()) {
                 continue;
             }
-            List<TickNote> notes = distinctOnsets(solo.notes());
+            List<TickNote> notes = distinctOnsets(RhythmGrid.clean(solo.notes()));
             if (notes.size() < 2) {
                 continue;
             }
@@ -365,7 +365,11 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
                 depth++;
             }
         }
-        return notes;
+        // The rhythm the player meant, beat by beat (RhythmGrid); a note moved to the very end of the chart is past it.
+        return RhythmGrid.clean(notes).stream()
+                .filter(note -> note.tick() < total)
+                .map(note -> note.end() > total ? new TickNote(note.tick(), total - note.tick(), note.pitch()) : note)
+                .toList();
     }
 
     /**
@@ -652,7 +656,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
         int pitchNotes = 0;
         for (Corpus.Solo solo : solos) {
             Optional<ChordTimeline> chords = ChordTimeline.of(solo);
-            List<TickNote> notes = distinctOnsets(solo.notes());
+            List<TickNote> notes = distinctOnsets(RhythmGrid.clean(solo.notes()));
             if (solo.beatsPerBar() != 4 || chords.isEmpty() || notes.size() < 2) {
                 continue;
             }

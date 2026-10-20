@@ -169,12 +169,14 @@ class PerformanceServerTest {
             JsonNode songs = client.ofType("hello").get(0).path("songs");
             assertEquals(dev.musebots.core.Songs.IDS,
                     java.util.stream.StreamSupport.stream(songs.spliterator(), false).map(s -> s.path("id").asText()).toList());
-            JsonNode blues = songs.get(0);
+            assertEquals("ballad", songs.get(0).path("id").asText(), "the slow ballad comes first: the page starts on it");
+            assertEquals(66, songs.get(0).path("suggestedTempo").asInt());
+            JsonNode blues = songs.get(1);
             assertEquals("Blues in F", blues.path("title").asText());
             assertEquals("ABC", blues.path("form").asText());
             assertEquals(3, blues.path("sections").size());
             assertEquals("F7", blues.path("sections").get(0).path("bars").get(0).asText());
-            assertEquals("Song 1", songs.get(1).path("title").asText());
+            assertEquals("Song 1", songs.get(2).path("title").asText());
             assertEquals("Medium swing blues", blues.path("style").asText());
             assertEquals(120, blues.path("suggestedTempo").asInt());
             assertTrue(songs.size() >= 8, "the repertoire should offer a good range of tunes");
