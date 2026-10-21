@@ -94,6 +94,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
             int centre = median(notes); // the middle of this player's register in this solo
 
             int depth = 0; // how many notes of the phrase came before this one
+            List<Integer> pitches = pitchesOf(notes);
             for (int i = 0; i < notes.size(); i++) {
                 TickNote note = notes.get(i);
                 int tickInBar = Math.floorMod(note.tick(), BAR);
@@ -118,7 +119,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
                     int earlierInterval = i >= 3 ? notes.get(i - 2).pitch() - notes.get(i - 3).pitch() : 0;
                     String outcome = Integer.toString(clip(note.pitch() - previousPitch));
                     for (String key : pitchKeys(chord.quality(), degree(previousPitch, chord), tickInBar, previousInterval, earlierInterval,
-                            phase(depth, ends), register(previousPitch, centre))) {
+                            phase(depth, ends), register(previousPitch, centre), history(pitches, i))) {
                         count(pitch, key, outcome);
                     }
                 }
@@ -210,8 +211,29 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
         return bpm < 100 ? 0 : bpm < 160 ? 1 : bpm < 220 ? 2 : 3;
     }
 
+    private static final int UNKNOWN = 99;
+
+    /**
+     * The exact leaps (most recent first) among the {@code count} notes before the one being written, 99 where there are none.
+     * Jazz is full of stock phrases, which the last few exact leaps recognise (a bebop scale run, an arpeggio into a chord): the
+     * two most detailed pitch contexts are the last three and the last four leaps. On tunes it never saw, each predicts real
+     * solos better, and a fifth adds nothing.
+     */
+    private static int[] history(List<Integer> pitches, int count) {
+        int[] leaps = new int[4];
+        for (int k = 0; k < leaps.length; k++) {
+            int index = count - 1 - k;
+            leaps[k] = index >= 1 ? clip(pitches.get(index) - pitches.get(index - 1)) : UNKNOWN;
+        }
+        return leaps;
+    }
+
+    private static List<Integer> pitchesOf(List<TickNote> notes) {
+        return notes.stream().map(TickNote::pitch).toList();
+    }
+
     private static String[] pitchKeys(Quality quality, int previousDegree, int tickInBar, int previousInterval, int earlierInterval,
-                                      int phase, int register) {
+                                      int phase, int register, int[] leaps) {
         char q = switch (quality) {
             case DOM7 -> 'D';
             case MIN7 -> 'm';
@@ -219,6 +241,8 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
         };
         int position = positionClass(tickInBar);
         return new String[] {
+                "p7|" + q + "|" + leaps[0] + "," + leaps[1] + "," + leaps[2] + "," + leaps[3],
+                "p6|" + q + "|" + position + "|" + leaps[0] + "," + leaps[1] + "," + leaps[2],
                 "p2|" + q + "|" + previousDegree + "|" + position + "|" + leapBucket(previousInterval) + "|f" + phase + "|g" + register,
                 "p|" + q + "|" + previousDegree + "|" + position + "|" + leapBucket(previousInterval) + "|f" + phase,
                 "p|" + q + "|" + previousDegree + "|" + position + "|" + leapBucket(previousInterval),
@@ -335,9 +359,14 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
         int lastPhraseIoi = TPB;
         boolean justRepeated = false;
         Memory memory = new Memory();
+        // The pitches so far, starting from the one the line starts near: that note is the one before the first, as in the solos learned from.
+        List<Integer> trail = new ArrayList<>(List.of(startNear));
 
         while (position < total) {
             memory.update(notes);
+            for (int seen = trail.size() - 1; seen < notes.size(); seen++) {
+                trail.add(notes.get(seen).pitch());
+            }
             if (depth == 0 && !justRepeated && lastPhrase.size() >= MIN_REPLAYED_PHRASE && random.nextDouble() < motifRepeat) {
                 // The figure starts at the same place in the beat as before, so its swing is the same: a little more rest if need be.
                 int start = position + Math.floorMod(lastPhrase.get(0).tick() - position, TPB);
@@ -371,7 +400,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
             Chord next = barChords.get(Math.min(barChords.size() - 1, (position + ioi) / BAR));
 
             String[] pitchContexts = pitchKeys(chord.quality(), degree(previousPitch, chord), tickInBar, previousInterval, earlierInterval,
-                    phase(depth, ends), register(previousPitch, centre));
+                    phase(depth, ends), register(previousPitch, centre), history(trail, trail.size()));
             Map<String, Double> leaps = leaps(pitchContexts, memory.leapAfter(notes), PITCH_MEMORY, Blend.INTERPOLATE);
             int pitch = isLanding(chord, next, ends)
                     ? chooseLandingPitch(leaps, landingKeys(next.quality(), ends), previousPitch, next, low, high, temperature, random)
@@ -693,6 +722,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
             }
             int centre = median(notes);
             int depth = 0;
+            List<Integer> pitches = pitchesOf(notes);
             Memory memory = new Memory();
             for (int i = 0; i < notes.size(); i++) {
                 TickNote note = notes.get(i);
@@ -709,7 +739,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
                     int previousInterval = i >= 2 ? previousPitch - notes.get(i - 2).pitch() : 0;
                     int earlierInterval = i >= 3 ? notes.get(i - 2).pitch() - notes.get(i - 3).pitch() : 0;
                     String[] contexts = pitchKeys(chord.quality(), degree(previousPitch, chord), tickInBar, previousInterval, earlierInterval,
-                            phase(depth, ends), register(previousPitch, centre));
+                            phase(depth, ends), register(previousPitch, centre), history(pitches, i));
                     Chord next = i + 1 < notes.size() ? chords.get().at(notes.get(i + 1).tick()) : chord;
                     Map<String, Double> leaps = leaps(contexts, memory.leapAfter(before), pitchMemory, blend);
                     Map<String, Double> chances = isLanding(chord, next, ends)

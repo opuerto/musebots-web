@@ -111,6 +111,18 @@ class SoloOptionTest {
     }
 
     @Test
+    void oneModelForTheWholeBandIsOfferedForDownloadOnce(@TempDir Path dir) throws IOException {
+        Path shared = dir.resolve("markov.json");
+        eighthsModel().write(shared);
+        SoloOption markov = SoloOption.offered(Map.of("MARKOV_MODEL", shared.toString())::get, log).get(1);
+        assertEquals(Map.of("markov", shared), markov.downloads(), "four instruments, one file, one name");
+        for (Instrument instrument : Instrument.values()) {
+            assertTrue(solo(markov, instrument).size() > 0, instrument + " plays from it");
+        }
+        assertTrue(markov.credit().contains("1 transcribed solos"), "and the data is counted once: " + markov.credit());
+    }
+
+    @Test
     void anInstrumentWithNoModelSolosByTheRules(@TempDir Path dir) throws IOException {
         Path bass = dir.resolve("bass.json");
         eighthsModel().write(bass);

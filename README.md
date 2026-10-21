@@ -26,11 +26,11 @@ Settings are environment variables, all optional:
 | `JADE_PORT` | 1099 | the agent platform's own port, used inside the machine only (never publish it) |
 | `MAX_PERFORMANCES` | 8 | how many bands may play at once; each is sixteen agents, so this protects the server's memory. Extra visitors are asked to try again |
 | `ALLOWED_ORIGINS` | none | extra web origins allowed to open the WebSocket, comma separated. Pages served by the server itself always may; other sites are refused (a browser does not stop a WebSocket from being opened from another site, so the server checks) |
-| `MARKOV_MODEL` | none | path of a trained solo model, for every instrument; see "Learning solos from real jazz" |
-| `MARKOV_MODEL_SAX`, `_PIANO`, `_BASS`, `_DRUMS` | none (the image: the files in `models/`) | an instrument's own model, used instead of `MARKOV_MODEL` for that instrument (an instrument with neither solos by the rules) |
+| `MARKOV_MODEL` | none (the image: `models/markov.json`) | path of a trained solo model, for every instrument; see "Learning solos from real jazz" |
+| `MARKOV_MODEL_SAX`, `_PIANO`, `_BASS`, `_DRUMS` | none | an instrument's own model, used instead of `MARKOV_MODEL` for that instrument (an instrument with neither solos by the rules) |
 
 `GET /health` answers `{"status":"ok","performances":0,"capacity":8}` for uptime checks and the hosting platform.
-`GET /models` lists the learned models the server plays from, and `/models/sax.json` (and so on) downloads one, under the ODbL.
+`GET /models` lists the learned models the server plays from, and `/models/markov.json` downloads the one the whole band plays from, under the ODbL.
 
 **Putting it on a public domain:** the repository has a `Dockerfile` that builds one image serving the page, the agents and the learned models in `models/`; set `PORT`, `MAX_PERFORMANCES` and, if needed, `ALLOWED_ORIGINS` as above, and point a health check at `/health`. The step-by-step guide for deploying with Coolify is kept outside the repository.
 
@@ -258,30 +258,36 @@ links to the download whenever the learned solos are selected.
 # 1. Download wjazzd.db from the page above into data/, and turn it into a plain corpus (Python 3, no packages)
 python3 learning/tools/wjd_to_corpus.py data/wjazzd.db data/corpus.json
 
-# 2. Look at it, train a model for each instrument of the band (holding out a fifth of the tunes), and evaluate
+# 2. Look at it, and train one model from every instrument's solos. The first one holds out a fifth of the tunes, to judge it by:
 ./gradlew :learning:run --args="inspect  --corpus data/corpus.json"
-./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-sax.json   --instruments sax"
-./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-piano.json --instruments keys"
-./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-bass.json  --instruments low"
-./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-drums.json --instruments all"
-./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-sax.json --temperatures 0.9,1.0 --report data/report.md"
-./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-piano.json --instrument piano"
+./gradlew :learning:run --args="train    --corpus data/corpus.json --out data/markov-eval.json --instruments all"
+./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-eval.json --instrument sax --reference sax --temperatures 0.9"
+./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-eval.json --instrument piano --reference keys"
+./gradlew :learning:run --args="evaluate --corpus data/corpus.json --model data/markov-eval.json --instrument bass --reference low"
 
-# 3. Play with it: the page gets a "Solos" menu
-MARKOV_MODEL_SAX=data/markov-sax.json MARKOV_MODEL_PIANO=data/markov-piano.json \
-MARKOV_MODEL_BASS=data/markov-bass.json MARKOV_MODEL_DRUMS=data/markov-drums.json ./gradlew :server:run
+# 3. The model the band plays learns from everything (no tunes held out), and goes in models/, which the image includes
+./gradlew :learning:run --args="train    --corpus data/corpus.json --out models/markov.json --instruments all --test-fraction 0"
+
+# 4. Play with it: the page gets a "Solos" menu
+MARKOV_MODEL=models/markov.json ./gradlew :server:run
 ```
 
-`MARKOV_MODEL=data/markov-sax.json` alone still works: that one model then solos on every instrument.
+`MARKOV_MODEL_SAX`, `_PIANO`, `_BASS` and `_DRUMS` give one instrument a model of its own, if you ever want that.
 
-**What each instrument learns from.** The database is mostly horns: it has no bass or drum solos and only six piano solos.
+**One model for the whole band.** The database is mostly horns: it has no bass or drum solos and only six piano solos. So an
+instrument's own solos are too few to learn from (the piano model had 17 solos to learn from, the bass 31), and what a horn plays
+over the changes (its phrases, its leaps, its licks) is what a line over them is made of. Pooling every instrument's solos gives
+one model that predicts real solos on tunes it never saw better than a model of the instrument's own, and the composers put the
+line in each instrument's register (`SoloModelComposer`). Measured over five different random splits of the tunes, in bits a note
+(lower is better; the rhythm and the pitch together):
 
-| Band instrument | `--instruments` | Solos in the database (usable) | Why |
-|---|---|---|---|
-| Sax | `sax` (as, ts, ss, bs) | 264 (252) | its own instrument |
-| Piano | `keys` (p, vib, g) | 24 (21) | the six piano solos are too few alone, so the vibraphone and guitar lines join them: the other chord instruments, soloing with one hand's worth of line |
-| Bass | `low` (tb, bs, bcl) | 39 (39) | there are no bass solos; the trombone, baritone sax and bass clarinet play nearest the bass register (the line is put in the bass's own register when it plays) |
-| Drums | `all` | 447 (430) | there are no pitches to learn; the drums take the model's rhythm and phrasing, which every solo teaches |
+| Judged on | its own instrument's solos only | every instrument pooled | |
+|---|---:|---:|---|
+| sax solos (245 in the five test sets) | 7.52 | 7.48 | a little better: it already had 200 solos |
+| piano-type solos (piano, vibraphone, guitar: 18) | 7.58 | **7.18** | much better: it had 17 to learn from |
+| bass-type solos (trombone, baritone sax, bass clarinet: 42) | 8.09 | **7.68** | much better: it had 31 |
+
+Counting the instrument's own solos three times in the pool did not help. The drums take the model's rhythm and phrasing.
 
 ### How it works
 
@@ -309,6 +315,13 @@ MARKOV_MODEL_BASS=data/markov-bass.json MARKOV_MODEL_DRUMS=data/markov-drums.jso
   they went before. While it solos, the model remembers what it played after every two-note figure of leaps, and of gaps, and takes a
   share of the next note's chances from that memory (20% for the pitch, 10% for the rhythm). Like a language model's cache, it is
   learned in the sense that matters: the shares are the ones that best predict held-out solos.
+- **Stock phrases.** Jazz is full of them (a bebop scale run, an arpeggio into a chord), and the last few exact leaps recognise
+  one. The two most detailed pitch contexts are the last three and the last four leaps (with the chord's quality, and the beat for
+  three): on tunes it never saw, each predicts real solos better (by 0.04 to 0.07 bits a note across the instruments), and a
+  fifth leap adds nothing. A line is also written knowing the pitch it starts from, as the solos it learned from are. Its copy
+  rate (how much it plays is a run of six leaps found in the training solos) is 0.27 for the sax, where real solos on new tunes
+  have 0.32 (before pooling and these contexts: 0.12 against 0.26): it uses the idiom about as often as real players, and is not
+  playing the training solos back.
 - A temperature controls how closely it follows the data. The band plays at **0.9**, where its solos come closest to the real ones.
 - **Phrases and landing.** A silence of a beat or more ends a phrase. Both tables also know how far into its phrase the line is, so
   it learns how long phrases run and that a phrase's last note is placed differently from its first. A third table, *landing*,
@@ -417,12 +430,30 @@ ones. The bass at 0.9 overshoots: busier and with longer phrases than the low ho
 so one temperature for the whole band is a compromise. The bass model has learned from horns, so it is a
 horn's solo in the bass register, not a bassist's. The drums cannot be measured this way (the measures are pitches against chords).
 
+### More data, and what there is not
+
+Of everything open, the Weimar Jazz Database is the one collection of hand-checked solos: 456, almost all horns. Others exist and
+were looked at, and not used. **PiJAMA** (over 200 hours of solo piano) is automatic transcription of audio, which is noisy, and
+is licensed for non-commercial use only (CC BY-NC), which cannot be combined with models released under the ODbL.
+**FiloBass** (48 verified bass lines, MIT) is walking bass for backing tracks, not solos. Published transcriptions such as the
+Charlie Parker Omnibook are copyright. So the gains came from using the data better: pooling every instrument's solos (above), and
+training the model the band plays on every tune (430 solos) instead of the four fifths kept for judging it.
+
+The database also keeps what the corpus leaves out, for each note: its **loudness** in dB (200,000 notes) and its real onset time.
+Whether the loudness can be learned was measured on held-out tunes: the notes' context (how high the note is, the leap into and out
+of it, whether it is a peak, its length, where it falls in the beat and the phrase) explains only about **12%** of how much louder or
+softer a note is than its solo's average (a spread of 4.5 dB), mostly that higher notes are louder (7%) and that leaps and peaks are
+accented (5 to 7%); the beat explains almost nothing (0.2%), so the hand-set accent on the off-beat has no support in the data. The
+drift of a player's loudness over a few notes explains a little more (neighbouring notes correlate at 0.28, falling to 0.11 eight
+notes on), and the rest is note-to-note variation, much of it noise in measuring old recordings. A learned dynamic would therefore
+be a small effect on top of the random variation the humanizer adds, and it is not built.
+
 ### What a better model would change
 
 Everything above the model stays: `PhraseComposer` is the one place a composer plugs in, `ComposerFactory` chooses it per instrument,
 `evaluate` compares it with these two on the same footing, and the copy rate shows whether it merely memorised. A neural model would
 be trained on the same corpus (the same split, in Python) and exported, and has to predict the held-out solos in fewer bits than the
-Markov model's 7.72 a note (sax), and beat it on repeated figures and long phrases, without a copy rate far above the real solos'.
+Markov model's 7.26 a note (sax, the pooled model on the standard split; 7.72 for the earlier sax-only model on another split), and beat it on repeated figures and long phrases, without a copy rate far above the real solos'.
 
 ## Not yet built
 

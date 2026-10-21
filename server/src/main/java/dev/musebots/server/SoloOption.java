@@ -102,7 +102,7 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
         Map<String, MarkovModel> loaded = new HashMap<>(); // by path, so a file named twice is read once
         MarkovModel shared = load(environment.apply(MODEL_VARIABLE), "", loaded, log);
         Map<Instrument, MarkovModel> models = new EnumMap<>(Instrument.class);
-        Map<String, Path> files = new java.util.TreeMap<>();
+        Map<Path, List<String>> users = new java.util.LinkedHashMap<>(); // which instruments play from each file
         for (Instrument instrument : Instrument.values()) {
             String name = instrument.name().toLowerCase(Locale.ROOT);
             String ownPath = environment.apply(modelVariable(instrument));
@@ -110,9 +110,13 @@ public record SoloOption(String id, String label, String credit, ComposerFactory
             MarkovModel model = own != null ? own : shared;
             if (model != null) {
                 models.put(instrument, model);
-                files.put(name, Path.of(own != null ? ownPath : environment.apply(MODEL_VARIABLE)));
+                users.computeIfAbsent(Path.of(own != null ? ownPath : environment.apply(MODEL_VARIABLE)), p -> new java.util.ArrayList<>()).add(name);
             }
         }
+        // A file is offered for download once, under the name of its instrument, or "markov" if every instrument plays from it.
+        Map<String, Path> files = new java.util.TreeMap<>();
+        users.forEach((file, instruments) -> files.put(instruments.size() == 1 ? instruments.get(0)
+                : instruments.size() == Instrument.values().length ? "markov" : String.join("-", instruments), file));
         if (models.isEmpty()) {
             if (anyNamed(environment)) {
                 log.println("No solo model could be loaded: offering the rules only.");

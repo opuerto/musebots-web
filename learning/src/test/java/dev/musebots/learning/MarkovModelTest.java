@@ -110,6 +110,29 @@ class MarkovModelTest {
     }
 
     @Test
+    void remembersStockPhrasesThatTheLastTwoLeapsCannotTellApart() {
+        // Two figures, X and Y, reach the same note by the same last two leaps (up a tone, up a tone) and the same beat, but
+        // differ in the leap before: X came by a semitone and goes on up a major third, Y came by a minor third and drops a fourth.
+        // Only the last three or four leaps tell them apart: a model that looks back less would pick one for both.
+        int[] pitches = {60, 61, 63, 65, 69, 67, /* X, then Y: */ 58, 61, 63, 65, 60, 57};
+        List<TickNote> notes = new ArrayList<>();
+        for (int bar = 0; bar < 16; bar++) {
+            for (int i = 0; i < pitches.length; i++) {
+                notes.add(new TickNote((bar * pitches.length + i) * 12, 10, pitches[i]));
+            }
+        }
+        MarkovModel model = train(Solos.solo("a", "Stock phrases", notes));
+        assertTrue(model.pitch().keySet().stream().anyMatch(k -> k.startsWith("p7|")), "it learned the last four leaps");
+        assertTrue(model.pitch().keySet().stream().anyMatch(k -> k.startsWith("p6|")), "and the last three");
+
+        List<TickNote> line = model.generate(Collections.nCopies(10, Chord.parse("F7")), 4, 57, 50, 80, MOST_LIKELY, 0.0, new Random(1));
+        List<Integer> played = pitches(line);
+        for (int i = 0; i < pitches.length * 3; i++) { // three full times round both figures, from the first note
+            assertEquals(pitches[i % pitches.length], played.get(i), "note " + i + " of " + played.subList(0, pitches.length * 2));
+        }
+    }
+
+    @Test
     void aSituationSeenOnceLeansOnSimilarOnesButOneSeenOftenFollowsItself() {
         Map<String, Map<String, Integer>> once = Map.of("detailed", Map.of("x", 1), "coarse", Map.of("y", 9));
         Map<String, Double> chances = MarkovModel.distribution(once, new String[] {"detailed", "coarse"}, 3, MarkovModel.Blend.INTERPOLATE);

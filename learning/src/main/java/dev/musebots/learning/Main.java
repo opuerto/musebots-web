@@ -20,14 +20,17 @@ public final class Main {
             usage:
               inspect  --corpus FILE
               train    --corpus FILE --out FILE [--instruments sax] [--test-fraction 0.2] [--seed 1] [--min-context 10]
-              evaluate --corpus FILE --model FILE [--instrument sax] [--baseline FILE] [--temperatures 1.0] [--repetitions 3] [--seed 1] [--report FILE]
+              evaluate --corpus FILE --model FILE [--instrument sax] [--reference sax] [--baseline FILE] [--temperatures 1.0] [--repetitions 3] [--seed 1] [--report FILE]
 
             --instruments is what to learn from: a group (sax, trumpet, trombone, clarinet, keys, low, all) or the database's
             codes (as,ts,...). --instrument is the band's instrument (sax, piano, bass) whose register and rules it is measured with.
+            --reference is whose real solos to compare with (a group or codes, as for --instruments); by default those of the
+            instruments the model learned from, so a model that learned from all of them is judged on --reference sax, keys or low.
             --baseline is an earlier model to compare how well each predicts the held-out solos (train both with the same
             --instruments, --test-fraction and --seed, so they hold out the same solos).
-            A model per instrument of the band, as the server takes them:
-              sax: --instruments sax    piano: --instruments keys    bass: --instruments low    drums: --instruments all
+            One model for the whole band is best (it learns from every instrument's solos; the composers put the line in each
+            instrument's register): train --instruments all. To judge it, train with the default --test-fraction and run
+            evaluate --instrument sax --reference sax; the model the band plays is trained with --test-fraction 0, on everything.
 
             The corpus comes from tools/wjd_to_corpus.py. Run through Gradle, for example:
               ./gradlew :learning:run --args="train --corpus data/corpus.json --out data/markov.json --instruments sax"
@@ -105,12 +108,16 @@ public final class Main {
         long seed = Long.parseLong(options.getOrDefault("seed", "1"));
         Instrument instrument = bandInstrument(options.getOrDefault("instrument", "sax"));
 
-        Set<String> instruments = new HashSet<>(model.meta().instruments());
-        List<Corpus.Solo> usable = new Selection(instruments, 0, Double.MAX_VALUE, Selection.ALL.minNotes()).apply(corpus);
+        // The real solos to compare with: those of the instruments the model learned from, or of --reference (a model that learned
+        // from every instrument is best judged on one instrument's solos at a time, the one the composer plays).
+        Set<String> reference = options.containsKey("reference")
+                ? Selection.instrumentsNamed(options.get("reference")) : new HashSet<>(model.meta().instruments());
+        List<Corpus.Solo> usable = new Selection(Set.of(), 0, Double.MAX_VALUE, Selection.ALL.minNotes()).apply(corpus);
         Set<String> trainIds = new HashSet<>(model.meta().trainIds());
         Set<String> testIds = new HashSet<>(model.meta().testIds());
         List<Corpus.Solo> training = usable.stream().filter(solo -> trainIds.contains(solo.id())).toList();
-        List<Corpus.Solo> heldOut = usable.stream().filter(solo -> testIds.contains(solo.id())).toList();
+        List<Corpus.Solo> heldOut = usable.stream().filter(solo -> testIds.contains(solo.id()))
+                .filter(solo -> reference.isEmpty() || reference.contains(solo.instrument())).toList();
         if (heldOut.isEmpty()) {
             throw new IllegalArgumentException("the model has no held-out solos to test on; train with --test-fraction above 0");
         }
