@@ -83,11 +83,12 @@ class HumanizerTest {
                 new NoteEvent(Instrument.DRUMS, 51, START + 500 + Math.round(Swing.OFFBEAT * 500), 100, 80)); // the skip note of beat 2
         List<NoteEvent> moved = Humanizer.standard().apply(notes, request, new Random(1));
 
-        // Remove the feel's own jitter by comparing averages over many runs.
+        // Remove the feel's own jitter by comparing averages over many runs. (Well-mixed seeds: java.util.Random's first draws
+        // for the seeds 0, 1, 2... are correlated with one another, which would show up as a bias.)
         double onBeat = 0;
         double offBeat = 0;
         for (int run = 0; run < 400; run++) {
-            List<NoteEvent> played = Humanizer.standard().apply(notes, request, new Random(run));
+            List<NoteEvent> played = Humanizer.standard().apply(notes, request, new java.util.SplittableRandom(run));
             onBeat += played.get(1).startMs() - (START + 500);
             offBeat += played.get(2).startMs() - (START + 500 + Math.round(Swing.OFFBEAT * 500));
         }
@@ -106,13 +107,65 @@ class HumanizerTest {
         for (int i = 0; i < notes.size(); i++) {
             if ((notes.get(i).startMs() - START) % 300 != 0) { // an off-beat note
                 for (int run = 0; run < 50; run++) {
-                    offBeatShift += Humanizer.standard().apply(notes, request, new Random(run)).get(i).startMs() - notes.get(i).startMs();
+                    offBeatShift += Humanizer.standard().apply(notes, request, new java.util.SplittableRandom(run)).get(i).startMs() - notes.get(i).startMs();
                     count++;
                 }
                 break;
             }
         }
         assertEquals(0, offBeatShift / count, 2.0);
+    }
+
+    @Test
+    void tripletsAndSixteenthsStayEvenWhileEighthsSwing() {
+        PhraseRequest request = request(PhraseKind.SOLO, 120, 12); // 3:1 swing at this tempo
+        long beat = 500;
+        List<NoteEvent> line = List.of( // beat 1: a triplet; beat 2: four sixteenths; beat 3: two swung eighths
+                new NoteEvent(Instrument.SAX, 60, START, 150, 90), new NoteEvent(Instrument.SAX, 62, START + 167, 150, 90),
+                new NoteEvent(Instrument.SAX, 64, START + 333, 150, 90),
+                new NoteEvent(Instrument.SAX, 65, START + beat, 110, 90), new NoteEvent(Instrument.SAX, 67, START + beat + 125, 110, 90),
+                new NoteEvent(Instrument.SAX, 69, START + beat + 250, 110, 90), new NoteEvent(Instrument.SAX, 71, START + beat + 375, 110, 90),
+                new NoteEvent(Instrument.SAX, 72, START + 2 * beat, 300, 90),
+                new NoteEvent(Instrument.SAX, 74, START + 2 * beat + Math.round(Swing.OFFBEAT * beat), 150, 90));
+        double[] mean = new double[line.size()];
+        for (int run = 0; run < 400; run++) {
+            List<NoteEvent> played = Humanizer.standard().apply(line, request, new java.util.SplittableRandom(run));
+            for (int i = 0; i < line.size(); i++) {
+                mean[i] += (played.get(i).startMs() - line.get(i).startMs()) / 400.0;
+            }
+        }
+        double bias = Humanizer.feelOf(Instrument.SAX, PhraseKind.SOLO).biasMs();
+        for (int i = 0; i < 7; i++) {
+            assertEquals(bias, mean[i], 2.0, "note " + i + ": a triplet or a sixteenth is not swung, only played with the horn's feel");
+        }
+        assertEquals(bias, mean[7], 2.0);
+        assertEquals(bias + beat * (Swing.offbeatAtTempo(120) - Swing.OFFBEAT), mean[8], 3.0, "the swung eighth moves to the tempo's swing");
+    }
+
+    @Test
+    void theTimingDriftsSmoothlySoAFastRunStaysEven() {
+        PhraseRequest request = request(PhraseKind.SOLO, 120, 12);
+        List<NoteEvent> run = new ArrayList<>();
+        for (int i = 0; i < 64; i++) { // sixteenths: 125 ms apart
+            run.add(new NoteEvent(Instrument.SAX, 60 + i % 12, START + i * 125L + (i % 4 == 0 ? 0 : 0), 110, 90));
+        }
+        double gapSpread = 0;
+        double offsetSpread = 0;
+        for (int seed = 0; seed < 50; seed++) {
+            List<NoteEvent> played = Humanizer.standard().apply(run, request, new java.util.SplittableRandom(seed));
+            List<Double> gaps = new ArrayList<>();
+            List<Double> offsets = new ArrayList<>();
+            for (int i = 0; i < played.size(); i++) {
+                offsets.add((double) played.get(i).startMs() - run.get(i).startMs());
+                if (i > 0) {
+                    gaps.add((double) played.get(i).startMs() - played.get(i - 1).startMs());
+                }
+            }
+            gapSpread += sd(gaps) / 50;
+            offsetSpread += sd(offsets) / 50;
+        }
+        // With independent offsets, the gaps between notes would vary by about 1.4 times the offsets' spread; drifting, less.
+        assertTrue(gapSpread < 1.2 * offsetSpread, "gaps vary by " + gapSpread + " ms, offsets by " + offsetSpread + " ms");
     }
 
     // ---- timing feel ----
@@ -122,7 +175,11 @@ class HumanizerTest {
         PhraseRequest request = request(PhraseKind.SUPPORT, 200, 24); // 200 bpm leaves the swing alone, so only the feel is left
         for (Instrument instrument : new Instrument[] {Instrument.BASS, Instrument.DRUMS}) {
             List<NoteEvent> notes = written(instrument, request, 3);
-            List<Double> shifts = startShifts(notes, Humanizer.standard().apply(notes, request, new Random(7)));
+            // Over twenty phrases: the timing drifts smoothly, so one phrase's notes are not independent samples of it.
+            List<Double> shifts = new ArrayList<>();
+            for (int run = 0; run < 20; run++) {
+                shifts.addAll(startShifts(notes, Humanizer.standard().apply(notes, request, new java.util.SplittableRandom(7 + run))));
+            }
             Humanizer.Feel feel = Humanizer.feelOf(instrument, PhraseKind.SUPPORT);
             assertEquals(feel.biasMs(), mean(shifts), 1.6, instrument + " should sit " + feel.biasMs() + " ms from the beat on average");
             assertTrue(sd(shifts) <= feel.jitterMs() * 1.5 + 2 && sd(shifts) > 0.4 * feel.jitterMs(), instrument + " spread " + sd(shifts));
@@ -133,16 +190,19 @@ class HumanizerTest {
     void thePianoSitsBehindTheBeatAndRollsItsChordsOnTopOfThat() {
         PhraseRequest request = request(PhraseKind.SUPPORT, 200, 24);
         List<NoteEvent> notes = written(Instrument.PIANO, request, 3);
-        List<NoteEvent> played = Humanizer.standard().apply(notes, request, new Random(7));
         Humanizer.Feel feel = Humanizer.feelOf(Instrument.PIANO, PhraseKind.SUPPORT);
 
         List<Double> lowest = new ArrayList<>();
-        List<Double> all = startShifts(notes, played);
-        for (int i = 0; i < notes.size(); i++) {
-            final int note = i;
-            boolean lowestOfItsChord = notes.stream().noneMatch(other -> other.startMs() == notes.get(note).startMs() && other.midi() < notes.get(note).midi());
-            if (lowestOfItsChord) {
-                lowest.add(all.get(i));
+        List<Double> all = new ArrayList<>();
+        for (int run = 0; run < 20; run++) { // over twenty phrases, as the timing drifts smoothly within one
+            List<Double> shifts = startShifts(notes, Humanizer.standard().apply(notes, request, new java.util.SplittableRandom(7 + run)));
+            all.addAll(shifts);
+            for (int i = 0; i < notes.size(); i++) {
+                final int note = i;
+                boolean lowestOfItsChord = notes.stream().noneMatch(other -> other.startMs() == notes.get(note).startMs() && other.midi() < notes.get(note).midi());
+                if (lowestOfItsChord) {
+                    lowest.add(shifts.get(i));
+                }
             }
         }
         assertEquals(feel.biasMs(), mean(lowest), 1.6, "the bottom note of a chord sits at the piano's bias");

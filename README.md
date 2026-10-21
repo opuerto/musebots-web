@@ -220,9 +220,11 @@ Composers write notes exactly on the grid at one volume. `Humanizer` makes them 
 (the same seed gives the same performance); it never adds, removes or retunes a note:
 
 - **Swing follows the tempo.** The long note of an eighth-note pair is about 3:1 up to 100 bpm, falling to 2:1 at 200 and straight at 300, as real
-  players do (after Friberg and Sundstrom, 2002; an approximation of their findings, not their data).
+  players do (after Friberg and Sundstrom, 2002; an approximation of their findings, not their data). Only beats of swung eighths are
+  swung: triplets and sixteenths keep their even spacing.
 - **Each instrument has its own feel,** in milliseconds from the beat: the bass about 6 ahead, the piano 6 behind, a soloing sax 9 behind, the drums
-  on it, each wandering 4 to 9 ms. Notes that start together move together; a piano chord rolls upward by 5 ms a voice. The ending is played tightly.
+  on it, each drifting 4 to 9 ms around that. The drift is smooth, as a player's is (one note a little late, the next a little late
+  too: each keeps 60% of the last one's lean), so a fast run stays even instead of jittering note by note. Notes that start together move together; a piano chord rolls upward by 5 ms a voice. The ending is played tightly.
 - **Dynamics:** each note varies by a few velocity points, and a horn's phrases swell in the middle of four bars and soften at the ends.
 - **Note lengths** vary a little. A single line stays a single line (no overlaps, never reordered), and nothing runs past the end of its phrase.
 
@@ -293,7 +295,8 @@ MARKOV_MODEL_BASS=data/markov-bass.json MARKOV_MODEL_DRUMS=data/markov-drums.jso
   a line. When the line is played, only beats of eighths swing: triplets and sixteenths are played evenly. (Before this, the
   model mixed the transcribed off-beats freely and the band swung them a second time, which sounded out of time.)
 - **Model** (`MarkovModel`). It learns *when* the next note comes and *which* note it is separately. The rhythm depends on where the
-  note sits in the bar and the last two gaps; the pitch is a leap from the previous note, depending on the chord, where the previous note
+  note sits in the bar, the last two gaps and **the tempo** (slow, medium, fast, very fast: a run of sixteenths in a ballad is
+  impossibly fast in an up-tempo tune; this predicts held-out slow solos 0.17 bits a note better); the pitch is a leap from the previous note, depending on the chord, where the previous note
   sat **relative to the chord's root** (so one solo over F7 teaches it every dominant chord), whether the beat is strong, the last two
   leaps, and **where the line is in the player's register** (well below the middle of the solo's range up to well above it, so it
   learns to turn back from the top and the bottom). Each is a table of counts at several levels of detail.

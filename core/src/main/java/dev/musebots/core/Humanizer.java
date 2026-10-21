@@ -14,7 +14,8 @@ import java.util.random.RandomGenerator;
  * <ul>
  *   <li><b>Swing that follows the tempo</b> ({@link Swing#offbeatAtTempo}): jazz players swing less as they speed up.</li>
  *   <li><b>A feel for each instrument</b>: the bass sits a little ahead of the beat, the horn a little behind, the drums on it,
- *       and each wanders a few milliseconds around that. Notes that start together (a chord) move together, with the voices
+ *       and each drifts a few milliseconds around that, smoothly, as a player does (one note late, the next a little late too),
+ *       so a fast run stays even. Only swung eighths are swung to the tempo: triplets and sixteenths keep their even spacing. Notes that start together (a chord) move together, with the voices
  *       of a piano chord rolled a few milliseconds apart.</li>
  *   <li><b>Dynamics</b>: no two notes are quite as loud, and a horn's phrases swell and fall over four bars.</li>
  *   <li><b>Note lengths</b> that vary a little.</li>
@@ -92,13 +93,17 @@ public final class Humanizer {
         double offbeat = Swing.offbeatAtTempo(clock.tempoBpm());
         double phraseStart = request.startMs();
 
-        // Swing to the tempo.
+        // Swing to the tempo: only beats of swung eighths. A beat of triplets or sixteenths keeps its even spacing.
+        java.util.Set<String> eighthBeats = eighthBeats(notes, phraseStart, beatMs);
         Work[] work = new Work[notes.size()];
         for (int i = 0; i < work.length; i++) {
             NoteEvent note = notes.get(i);
-            work[i] = new Work(note,
-                    phraseStart + Swing.retargetBeats((note.startMs() - phraseStart) / beatMs, offbeat) * beatMs,
-                    phraseStart + Swing.retargetBeats((note.endMs() - phraseStart) / beatMs, offbeat) * beatMs);
+            double startBeats = (note.startMs() - phraseStart) / beatMs;
+            boolean swings = eighthBeats.contains(note.instrument() + "@" + (long) Math.floor(startBeats + BEAT_TOLERANCE));
+            work[i] = swings
+                    ? new Work(note, phraseStart + Swing.retargetBeats(startBeats, offbeat) * beatMs,
+                            phraseStart + Swing.retargetBeats((note.endMs() - phraseStart) / beatMs, offbeat) * beatMs)
+                    : new Work(note, note.startMs(), note.endMs());
         }
 
         // Then the feel of each instrument, one instrument at a time so the same seed always gives the same performance.
@@ -118,6 +123,36 @@ public final class Humanizer {
         return played;
     }
 
+    /** How close to a position in the beat a note must start to count as on it: a few milliseconds of rounding. */
+    private static final double BEAT_TOLERANCE = 0.01;
+    /**
+     * How much of one note's timing carries over to the next. A player who is a little late tends to stay a little late for a
+     * while: the line drifts around the beat rather than jumping, so a fast run stays even.
+     */
+    private static final double TIMING_MEMORY = 0.6;
+
+    /**
+     * The beats (as "instrument@beat") in which each instrument plays only on the beat and on the swung off-beat: those are
+     * the ones to swing to the tempo. Triplets and sixteenths are left as written.
+     */
+    private static java.util.Set<String> eighthBeats(List<NoteEvent> notes, double phraseStart, double beatMs) {
+        Map<String, Boolean> beats = new java.util.HashMap<>();
+        for (NoteEvent note : notes) {
+            double beats0 = (note.startMs() - phraseStart) / beatMs;
+            long beat = (long) Math.floor(beats0 + BEAT_TOLERANCE);
+            double fraction = beats0 - beat;
+            boolean eighth = Math.abs(fraction) < BEAT_TOLERANCE || Math.abs(fraction - Swing.OFFBEAT) < BEAT_TOLERANCE;
+            beats.merge(note.instrument() + "@" + beat, eighth, Boolean::logicalAnd);
+        }
+        java.util.Set<String> eighths = new java.util.HashSet<>();
+        beats.forEach((key, eighth) -> {
+            if (eighth) {
+                eighths.add(key);
+            }
+        });
+        return eighths;
+    }
+
     private static void playLikeAPerson(List<Work> notes, Feel feel, PhraseRequest request, RandomGenerator random) {
         // Notes that start together are one gesture: they share a timing offset.
         TreeMap<Long, List<Work>> gestures = new TreeMap<>();
@@ -132,12 +167,16 @@ public final class Humanizer {
             originalStart[i] = ordered.get(i).get(0).start; // after the swing, before the feel
         }
 
+        double drift = random.nextGaussian(); // where around the beat the player is, in units of the feel's spread
         for (int i = 0; i < ordered.size(); i++) {
             double gapBefore = i > 0 ? originalStart[i] - originalStart[i - 1] : Double.MAX_VALUE;
             double gapAfter = i + 1 < ordered.size() ? originalStart[i + 1] - originalStart[i] : Double.MAX_VALUE;
             double limit = Math.min(MAX_OFFSET_MS, MAX_SHARE_OF_GAP * Math.min(gapBefore, gapAfter));
 
-            double offset = clamp(feel.biasMs() + random.nextGaussian() * feel.jitterMs(), limit);
+            if (i > 0) { // the same spread as before, but each note leans on the one before it
+                drift = TIMING_MEMORY * drift + Math.sqrt(1 - TIMING_MEMORY * TIMING_MEMORY) * random.nextGaussian();
+            }
+            double offset = clamp(feel.biasMs() + drift * feel.jitterMs(), limit);
             List<Work> gesture = new ArrayList<>(ordered.get(i));
             gesture.sort(Comparator.comparingInt(w -> w.note.midi())); // a chord rolls from the bottom up
             for (int voice = 0; voice < gesture.size(); voice++) {

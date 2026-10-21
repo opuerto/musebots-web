@@ -15,8 +15,6 @@ import java.util.random.RandomGenerator;
 /** The ways of writing a solo that an evaluation compares. */
 public final class Systems {
 
-    private static final MusicClock CLOCK = new MusicClock(120, 4);
-
     private Systems() {
     }
 
@@ -26,9 +24,10 @@ public final class Systems {
      */
     public static Evaluation.System ofComposer(String name, Function<RandomGenerator, PhraseComposer> composers) {
         return new Evaluation.System(name, (task, random) -> {
+            MusicClock clock = new MusicClock(task.tempoBpm(), 4); // at the real solo's tempo
             List<NoteEvent> events = composers.apply(random).compose(
-                    new PhraseRequest(PhraseKind.SOLO, Evaluation.asBars(task.bars()), CLOCK, 0));
-            return Evaluation.lineOver(task, topLine(NoteTicks.fromEvents(events, 0, CLOCK)));
+                    new PhraseRequest(PhraseKind.SOLO, Evaluation.asBars(task.bars()), clock, 0));
+            return Evaluation.lineOver(task, topLine(NoteTicks.fromEvents(events, 0, clock)));
         });
     }
 

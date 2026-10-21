@@ -107,7 +107,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
                     int previousIoi = i > 0 ? note.tick() - notes.get(i - 1).tick() : TPB;
                     int earlierIoi = i > 1 ? notes.get(i - 1).tick() - notes.get(i - 2).tick() : TPB;
                     String outcome = Math.min(ioi, MAX_TICKS) + ":" + Math.min(Math.min(note.duration(), ioi), MAX_TICKS);
-                    for (String key : rhythmKeys(tickInBar, previousIoi, earlierIoi, depth)) {
+                    for (String key : rhythmKeys(tickInBar, previousIoi, earlierIoi, depth, tempoBucket(solo.tempoBpm()))) {
                         count(rhythm, key, outcome);
                     }
                 }
@@ -176,14 +176,38 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
 
     // ---- the situations the tables are indexed by, from most to least detailed ----
 
-    private static String[] rhythmKeys(int tickInBar, int previousIoi, int earlierIoi, int depth) {
+    /**
+     * The rhythm's situations. {@code tempo} is a {@link #tempoBucket}, or -1 when the tempo is not known: what players do
+     * depends on it (a run of sixteenths in a ballad is impossibly fast in an up-tempo tune), so the most detailed situations,
+     * and one coarse one, know it.
+     */
+    private static String[] rhythmKeys(int tickInBar, int previousIoi, int earlierIoi, int depth, int tempo) {
         int beat = tickInBar / TPB;
         int tick = tickInBar % TPB;
         int previous = Math.min(previousIoi, MAX_TICKS);
-        return new String[] {
-                "r2|d" + depthBucket(depth) + "|" + tick + "|" + previous + "|" + Math.min(earlierIoi, MAX_TICKS),
-                "r|d" + depthBucket(depth) + "|" + tick + "|" + previous,
+        String d = "d" + depthBucket(depth);
+        String[] keys = {
+                "r2|" + d + "|" + tick + "|" + previous + "|" + Math.min(earlierIoi, MAX_TICKS),
+                "r|" + d + "|" + tick + "|" + previous,
                 "r|" + beat + "|" + tick + "|" + previous, "r|" + tick + "|" + previous, "r|" + tick, "r"};
+        if (tempo < 0) {
+            return keys;
+        }
+        String t = "t" + tempo;
+        return new String[] { // (a still more detailed one, with the gap before that too, predicted held-out solos worse)
+                "r4|" + t + "|" + d + "|" + tick + "|" + previous,
+                keys[0], keys[1], keys[2], keys[3],
+                "r4|" + t + "|" + tick + "|" + previous,
+                keys[4], keys[5]};
+    }
+
+    /** Slow (under 100 bpm), medium (to 160), fast (to 220) and very fast; -1 if the tempo is not known. */
+    static int tempoBucket(Number tempoBpm) {
+        if (tempoBpm == null || tempoBpm.doubleValue() <= 0) {
+            return -1;
+        }
+        double bpm = tempoBpm.doubleValue();
+        return bpm < 100 ? 0 : bpm < 160 ? 1 : bpm < 220 ? 2 : 3;
     }
 
     private static String[] pitchKeys(Quality quality, int previousDegree, int tickInBar, int previousInterval, int earlierInterval,
@@ -284,6 +308,13 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
     /** As above; {@code motifRepeat} is the chance that a new phrase repeats the one before, fitted to the chord it is over. */
     public List<TickNote> generate(List<Chord> barChords, int beatsPerBar, int startNear, int low, int high,
                                    double temperature, double motifRepeat, RandomGenerator random) {
+        return generate(barChords, beatsPerBar, startNear, low, high, temperature, motifRepeat, 0, random);
+    }
+
+    /** As above, at a tempo, so the rhythms are the ones players use at it ({@code tempoBpm} 0 if it is not known). */
+    public List<TickNote> generate(List<Chord> barChords, int beatsPerBar, int startNear, int low, int high,
+                                   double temperature, double motifRepeat, int tempoBpm, RandomGenerator random) {
+        int tempo = tempoBucket(tempoBpm);
         if (beatsPerBar != 4) {
             throw new UnsupportedOperationException("the model was learned in 4/4");
         }
@@ -330,7 +361,7 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
             Chord chord = barChords.get(position / BAR);
             int tickInBar = position % BAR;
 
-            Map<String, Double> gaps = mix(distribution(rhythm, rhythmKeys(tickInBar, previousIoi, earlierIoi, depth)),
+            Map<String, Double> gaps = mix(distribution(rhythm, rhythmKeys(tickInBar, previousIoi, earlierIoi, depth, tempo)),
                     memory.rhythmAfter(notes), RHYTHM_MEMORY);
             String[] gap = draw(gaps, temperature, random).split(":");
             int ioi = Math.max(1, Integer.parseInt(gap[0]));
@@ -692,7 +723,8 @@ public record MarkovModel(Meta meta, Map<String, Map<String, Integer>> rhythm, M
                     int previousIoi = i > 0 ? note.tick() - notes.get(i - 1).tick() : TPB;
                     int earlierIoi = i > 1 ? notes.get(i - 1).tick() - notes.get(i - 2).tick() : TPB;
                     String outcome = Math.min(ioi, MAX_TICKS) + ":" + Math.min(Math.min(note.duration(), ioi), MAX_TICKS);
-                    Map<String, Double> chances = mix(distribution(rhythm, rhythmKeys(tickInBar, previousIoi, earlierIoi, depth), meta.minContext(), blend),
+                    Map<String, Double> chances = mix(distribution(rhythm, rhythmKeys(tickInBar, previousIoi, earlierIoi, depth,
+                                    tempoBucket(solo.tempoBpm())), meta.minContext(), blend),
                             memory.rhythmAfter(notes.subList(0, i + 1)), rhythmMemory);
                     rhythmBits += bits(chances, outcome, RHYTHM_OUTCOMES);
                     rhythmNotes++;

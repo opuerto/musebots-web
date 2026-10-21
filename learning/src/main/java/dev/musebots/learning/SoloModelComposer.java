@@ -71,7 +71,7 @@ public final class SoloModelComposer implements PhraseComposer {
         Range range = rangeOf(instrument());
         List<Chord> chords = request.bars().stream().map(ChordBar::chord).toList();
         List<TickNote> line = model.generate(chords, request.clock().beatsPerBar(), range.startNear(), range.low(), range.high(),
-                temperature, random);
+                temperature, MarkovModel.DEFAULT_MOTIF_REPEAT, request.clock().tempoBpm(), random);
 
         if (instrument() == Instrument.DRUMS) {
             return drums(line, request);

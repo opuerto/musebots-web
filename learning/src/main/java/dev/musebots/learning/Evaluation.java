@@ -27,8 +27,12 @@ public final class Evaluation {
     private Evaluation() {
     }
 
-    /** A solo to write: the chord of each bar. */
-    public record Task(String id, List<Chord> bars) {
+    /** A solo to write: the chord of each bar, and the tempo the real solo was played at. */
+    public record Task(String id, List<Chord> bars, int tempoBpm) {
+
+        public Task(String id, List<Chord> bars) {
+            this(id, bars, 120);
+        }
     }
 
     /** Something that writes a solo over a chord chart. */
@@ -77,7 +81,8 @@ public final class Evaluation {
             for (int bar = 0; bar < bars; bar++) {
                 chords.add(timeline.get().at(bar * BAR));
             }
-            tasks.add(new Task(solo.id(), chords));
+            int tempo = solo.tempoBpm() == null || solo.tempoBpm() <= 0 ? 120 : (int) Math.round(solo.tempoBpm());
+            tasks.add(new Task(solo.id(), chords, tempo));
         }
         return tasks;
     }
